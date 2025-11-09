@@ -1,40 +1,36 @@
-# AI Claims Workbench
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-An AI-assisted prototype for photo-based car damage assessment targeted at **claims agents**.
+## Getting Started
 
-This prototype is part of a take-home exercise to demonstrate product thinking, AI integration, and rapid prototyping.
-
-## What It Does
-
-1. **Initiate / Load Claim**
-   - Enter basic claim details (policy #, claimant, accident date, description).
-
-2. **Upload Damage Photos**
-   - Attach one or more images of the damaged vehicle.
-
-3. **Run AI Assessment (Simulated)**
-   - Click "Run AI Assessment" to generate a mocked AI response:
-     - Detected damaged parts
-     - Severity category
-     - Cost estimate range
-     - Recommended next step (auto-approve / standard review / escalate)
-
-4. **Human-in-the-Loop Actions**
-   - The agent can:
-     - Approve a preliminary estimate,
-     - Request more information,
-     - Escalate to a senior adjuster.
-   - All actions are explicitly taken by a human.
-
-## Tech Stack
-
-- Pure front-end: **HTML + CSS + JavaScript**
-- No backend required.
-- AI behavior is simulated to illustrate how a real model API would plug in.
-
-## How to Run
+First, run the development server:
 
 ```bash
-git clone https://github.com/<your-github-username>/ai-claims-workbench.git
-cd ai-claims-workbench
-python -m http.server 8000  # or use any static server
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
