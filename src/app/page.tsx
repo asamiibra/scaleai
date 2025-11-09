@@ -5,44 +5,15 @@ import ClaimForm from "../components/ClaimForm";
 import ImageUploader from "../components/ImageUploader";
 import AssessmentPanel from "../components/AssessmentPanel";
 import ActionLog from "../components/ActionLog";
+import type { Assessment } from "@/types/assessment"; // adjust path if needed
 
-/* ---------- Types shared across page & mock API ---------- */
+/* ---------- Types ---------- */
 
 type Claim = {
   id: string;
   policyNumber: string;
   name: string;
   description: string;
-};
-
-type AssessmentPart = {
-  part_label: string;
-  severity: string;
-  confidence: number;
-  estimated_cost_min: number;
-  estimated_cost_max: number;
-};
-
-type Assessment = {
-  damaged_parts: AssessmentPart[];
-  total_min: number;
-  total_max: number;
-  overall_confidence: number;
-  recommendation: {
-    code: string;
-    text: string;
-  };
-  flags: string[];
-  image_quality?: string[];
-  cost_breakdown?: {
-    label: string;
-    details: string[];
-  }[];
-  _meta?: {
-    model_version: string;
-    processing_time_ms: number;
-    timestamp: string;
-  };
 };
 
 type PanelActionMeta = {

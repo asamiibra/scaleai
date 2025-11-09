@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  Assessment,
-  DamagedPart,
-  CostBreakdownEntry,
-} from "../../../types/assessment";
+import { Assessment, DamagedPart } from "../../../types/assessment";
 
 export async function POST(req: NextRequest) {
   // Simulate realistic model latency
@@ -125,7 +121,7 @@ export async function POST(req: NextRequest) {
     image_quality.push("Limited coverage – additional photos recommended.");
   }
 
-  const cost_breakdown: CostBreakdownEntry[] = damaged_parts.map((p) => ({
+  const cost_breakdown = damaged_parts.map((p) => ({
     label: p.part_label,
     details: [
       `Estimated range: $${p.estimated_cost_min.toLocaleString()}–$${p.estimated_cost_max.toLocaleString()}`,

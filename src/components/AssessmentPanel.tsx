@@ -1,46 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-
-/* Types aligned with page.tsx */
+import type {
+  Assessment,
+  DamagedPart,
+  CostBreakdownEntry,
+} from "@/types/assessment"; // adjust path if needed
 
 type Claim = {
   id: string;
   policyNumber: string;
   name: string;
   description: string;
-};
-
-type AssessmentPart = {
-  part_label: string;
-  severity: string;
-  confidence: number;
-  estimated_cost_min: number;
-  estimated_cost_max: number;
-};
-
-type BreakdownItem = {
-  label: string;
-  details?: string[];
-};
-
-type Assessment = {
-  damaged_parts: AssessmentPart[];
-  total_min: number;
-  total_max: number;
-  overall_confidence: number;
-  recommendation: {
-    code: string;
-    text: string;
-  };
-  flags: string[];
-  image_quality?: string[];
-  cost_breakdown?: BreakdownItem[];
-  _meta?: {
-    model_version: string;
-    processing_time_ms: number;
-    timestamp: string;
-  };
 };
 
 type AssessmentPanelProps = {
@@ -51,6 +22,8 @@ type AssessmentPanelProps = {
   onRunAssessment?: () => void;
   onAction?: (label: string, meta?: { complete?: boolean }) => void;
 };
+
+type BreakdownItem = CostBreakdownEntry;
 
 const fmt = (min: number, max: number) =>
   `$${min.toLocaleString()}–${max.toLocaleString()}`;
@@ -90,14 +63,14 @@ export default function AssessmentPanel({
     if (local.cost_breakdown && local.cost_breakdown.length > 0) {
       return local.cost_breakdown;
     }
-    // fallback breakdown derived from parts
+    // Fallback breakdown derived from parts
     return local.damaged_parts.map((p) => ({
       label: p.part_label,
       details: [`Estimated range: ${fmt(p.estimated_cost_min, p.estimated_cost_max)}`],
     }));
   }, [local]);
 
-  const recalcTotals = (parts: AssessmentPart[]): { min: number; max: number } => {
+  const recalcTotals = (parts: DamagedPart[]): { min: number; max: number } => {
     return parts.reduce(
       (acc, p) => {
         acc.min += p.estimated_cost_min || 0;
@@ -328,10 +301,7 @@ export default function AssessmentPanel({
                     {badge.label}
                   </span>
                   <span className="text-slate-100">
-                    {fmt(
-                      part.estimated_cost_min,
-                      part.estimated_cost_max
-                    )}
+                    {fmt(part.estimated_cost_min, part.estimated_cost_max)}
                   </span>
                 </div>
               </div>
@@ -385,9 +355,7 @@ export default function AssessmentPanel({
                 </li>
               ))
             ) : (
-              <li className="text-emerald-400">
-                None detected in this mock.
-              </li>
+              <li className="text-emerald-400">None detected in this mock.</li>
             )}
           </ul>
           {manualMode && (
