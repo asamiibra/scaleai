@@ -2,11 +2,8 @@
 "use client";
 
 import type { Assessment } from "@/types/assessment";
-import {
-  FAST_TRACK_CONFIDENCE_THRESHOLD,
-  FAST_TRACK_MAX_COST,
-  RecommendationCode,
-} from "@/types/assessment";
+import { RecommendationCode } from "@/types/assessment";
+import { FAST_TRACK } from "@/config/policy";
 
 type DecisionActionLabel = "Approve" | "Request Photos" | "Escalate";
 
@@ -15,6 +12,12 @@ interface DecisionBarProps {
   onAction: (label: DecisionActionLabel, meta?: { complete?: boolean }) => void;
   disabled?: boolean;
 }
+
+// Fallback values in case FAST_TRACK is not available (shouldn't happen, but safety first)
+const FALLBACK_FAST_TRACK = {
+  MIN_CONFIDENCE: 0.8,
+  MAX_COST: 300000,
+} as const;
 
 export default function DecisionBar({
   assessment,
@@ -25,10 +28,16 @@ export default function DecisionBar({
 
   const { overall_confidence, total_max, recommendation } = assessment;
 
+  // Safe access to FAST_TRACK with fallback
+  const fastTrackConfig = FAST_TRACK || FALLBACK_FAST_TRACK;
+  const minConfidence = fastTrackConfig.MIN_CONFIDENCE ?? FALLBACK_FAST_TRACK.MIN_CONFIDENCE;
+  const maxCost = fastTrackConfig.MAX_COST ?? FALLBACK_FAST_TRACK.MAX_COST;
+
   // Use shared constants + recommendation signal instead of raw magic numbers
   const meetsFastTrackConfidence =
-    overall_confidence >= FAST_TRACK_CONFIDENCE_THRESHOLD;
-  const meetsFastTrackCost = total_max <= FAST_TRACK_MAX_COST;
+    typeof overall_confidence === "number" && overall_confidence >= minConfidence;
+  const meetsFastTrackCost =
+    typeof total_max === "number" && total_max <= maxCost;
   const recIsFastTrack =
     recommendation?.code === RecommendationCode.FAST_TRACK_REVIEW;
 
@@ -115,13 +124,16 @@ export default function DecisionBar({
         <button
           onClick={handleApprove}
           disabled={disabled || !canFastTrack}
-          className="flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-emerald-500 text-[11px] font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+          aria-label="Approve claim for fast-track processing"
+          aria-disabled={disabled || !canFastTrack}
+          className="flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-emerald-500 text-[11px] font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           <svg
             className="w-4 h-4"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -136,13 +148,16 @@ export default function DecisionBar({
         <button
           onClick={handleRequestPhotos}
           disabled={disabled}
-          className="flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-amber-500 text-[11px] font-medium text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+          aria-label="Request additional photos from claimant"
+          aria-disabled={disabled}
+          className="flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-amber-500 text-[11px] font-medium text-slate-950 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           <svg
             className="w-4 h-4"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -157,13 +172,16 @@ export default function DecisionBar({
         <button
           onClick={handleEscalate}
           disabled={disabled}
-          className="flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-rose-500 text-[11px] font-medium text-slate-50 hover:bg-rose-400 disabled:opacity-50"
+          aria-label="Escalate claim for senior review"
+          aria-disabled={disabled}
+          className="flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-rose-500 text-[11px] font-medium text-slate-50 hover:bg-rose-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           <svg
             className="w-4 h-4"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -178,6 +196,7 @@ export default function DecisionBar({
 
       {/* Image Quality Info */}
       {assessment.image_quality &&
+        Array.isArray(assessment.image_quality) &&
         assessment.image_quality.length > 0 && (
           <details className="group">
             <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-300 flex items-center gap-2 transition-colors">
@@ -186,6 +205,7 @@ export default function DecisionBar({
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -200,7 +220,7 @@ export default function DecisionBar({
               {assessment.image_quality.map(
                 (note, index) => (
                   <p
-                    key={index}
+                    key={`quality-${index}`}
                     className="text-xs text-slate-400"
                   >
                     • {note}
@@ -213,6 +233,7 @@ export default function DecisionBar({
 
       {/* Cost Breakdown */}
       {assessment.cost_breakdown &&
+        Array.isArray(assessment.cost_breakdown) &&
         assessment.cost_breakdown.length > 0 && (
           <details className="group">
             <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-300 flex items-center gap-2 transition-colors">
@@ -221,6 +242,7 @@ export default function DecisionBar({
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -234,19 +256,23 @@ export default function DecisionBar({
             <div className="mt-2 space-y-2 pl-6">
               {assessment.cost_breakdown.map(
                 (item, index) => (
-                  <div key={index} className="text-xs">
+                  <div key={`breakdown-${index}`} className="text-xs">
                     <div className="font-medium text-slate-300">
-                      {item.label}
+                      {item.label || "Unlabeled item"}
                     </div>
-                    {item.details?.map(
-                      (detail, detailIndex) => (
-                        <div
-                          key={detailIndex}
-                          className="text-slate-400 ml-2"
-                        >
-                          • {detail}
-                        </div>
-                      )
+                    {Array.isArray(item.details) && item.details.length > 0 && (
+                      <>
+                        {item.details.map(
+                          (detail, detailIndex) => (
+                            <div
+                              key={`detail-${index}-${detailIndex}`}
+                              className="text-slate-400 ml-2"
+                            >
+                              • {detail}
+                            </div>
+                          )
+                        )}
+                      </>
                     )}
                   </div>
                 )

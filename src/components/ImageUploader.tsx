@@ -3,6 +3,7 @@
 
 import { useState, useRef, useCallback } from "react";
 import { Image } from "lucide-react";
+import { PHOTO } from "@/config/policy";
 
 interface ImageUploaderProps {
   photos: File[];
@@ -43,7 +44,7 @@ export default function ImageUploader({
       );
 
       if (files.length > 0) {
-        onChange(files.slice(0, 4));
+        onChange(files.slice(0, PHOTO.MAX_PHOTOS));
       }
     },
     [disabled, onChange]
@@ -55,7 +56,7 @@ export default function ImageUploader({
         const files = Array.from(e.target.files).filter((f) =>
           f.type.startsWith("image/")
         );
-        onChange(files.slice(0, 4));
+        onChange(files.slice(0, PHOTO.MAX_PHOTOS));
       }
     },
     [onChange]
@@ -94,7 +95,9 @@ export default function ImageUploader({
         <div className="flex flex-col items-center gap-2">
           <Image className="w-8 h-8 text-slate-400" />
           <p className="text-sm text-slate-300">Drag photos here or click to upload</p>
-          <p className="text-[10px] text-slate-500">Max {photos.length}/4 photos • JPG, PNG, WEBP</p>
+          <p className="text-[10px] text-slate-500">
+            Max {photos.length}/{PHOTO.MAX_PHOTOS} photos • {PHOTO.ACCEPTED_EXTENSIONS.map((ext) => ext.toUpperCase()).join(", ")}
+          </p>
         </div>
       </div>
 

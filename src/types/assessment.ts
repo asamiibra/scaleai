@@ -1,4 +1,13 @@
 // src/types/assessment.ts
+/**
+ * Claims Intelligence Workbench - Assessment Types
+ * 
+ * This file contains TypeScript type definitions, enums, and interfaces
+ * for the assessment domain. For business rules and configuration values,
+ * see @/config/policy.ts
+ */
+
+import { UI } from "@/config/policy";
 
 // ============================================================================
 // CORE DOMAIN TYPES
@@ -140,15 +149,11 @@ export interface Claim {
   }
   
   // ============================================================================
-  // CONSTANTS
-  // ============================================================================
-  
-  export const FAST_TRACK_CONFIDENCE_THRESHOLD = 0.8;
-  export const FAST_TRACK_MAX_COST = 300_000; // cents ($3,000)
-  
-  // ============================================================================
   // UTILITIES
   // ============================================================================
+  
+  // Note: Fast-track thresholds and other configuration constants
+  // are defined in @/config/policy.ts. Import FAST_TRACK from there.
   
   export function formatCostRange(min: number, max: number): string {
     if (min === 0 && max === 0) return "$0";
@@ -165,13 +170,15 @@ export interface Claim {
     label: string;
     color: "green" | "amber" | "red";
   } {
-    if (confidence >= 0.85) {
+    const { EXCELLENT, GOOD, FAIR } = UI.CONFIDENCE_BADGE;
+    
+    if (confidence >= EXCELLENT) {
       return { label: "Excellent", color: "green" };
     }
-    if (confidence >= 0.7) {
+    if (confidence >= GOOD) {
       return { label: "Good", color: "green" };
     }
-    if (confidence >= 0.5) {
+    if (confidence >= FAIR) {
       return { label: "Fair", color: "amber" };
     }
     return { label: "Low", color: "red" };

@@ -3,6 +3,7 @@
 
 import { useState, useMemo } from "react";
 import type { DamagedPart } from "@/types/assessment";
+import { UI } from "@/config/policy";
 
 interface DamagedPartsTableProps {
   parts: DamagedPart[];
@@ -48,10 +49,12 @@ const getSeverityColor = (severity: string) => {
   }
 };
 
-// Confidence color
+// Confidence color - uses config thresholds
 const getConfidenceColor = (confidence: number) => {
-  if (confidence >= 0.8) return "text-emerald-400";
-  if (confidence >= 0.6) return "text-amber-400";
+  const { EXCELLENT, GOOD, FAIR } = UI.CONFIDENCE_BADGE;
+  // Use slightly lower threshold for "high" confidence in table display
+  if (confidence >= EXCELLENT) return "text-emerald-400";
+  if (confidence >= GOOD) return "text-amber-400";
   return "text-rose-400";
 };
 

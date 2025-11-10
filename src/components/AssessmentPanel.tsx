@@ -7,6 +7,7 @@ import {
   DamagedPart,
   formatCostRange,
 } from "@/types/assessment";
+import { OVERRIDE, PHOTO } from "@/config/policy";
 
 // UI-local Claim shape (matches Home)
 type Claim = {
@@ -24,8 +25,7 @@ type PanelActionMeta = {
 // CONFIGURATION
 // ============================================================================
 
-const SIGNIFICANT_OVERRIDE_DELTA_ABS = 30_000; // $300 in cents
-const SIGNIFICANT_OVERRIDE_DELTA_PCT = 0.2; // 20%
+// Note: All configuration constants are imported from @/config/policy.ts
 
 // ============================================================================
 // TYPES
@@ -148,8 +148,8 @@ export default function AssessmentPanel({
       originalMid > 0 ? Math.abs(delta) / originalMid : 0;
 
     const isHighValue =
-      Math.abs(delta) > SIGNIFICANT_OVERRIDE_DELTA_ABS ||
-      deltaPct > SIGNIFICANT_OVERRIDE_DELTA_PCT;
+      Math.abs(delta) > OVERRIDE.SIGNIFICANT_DELTA_ABS ||
+      deltaPct > OVERRIDE.SIGNIFICANT_DELTA_PCT;
 
     const metadata: OverrideMetadata = {
       before: {
@@ -197,7 +197,11 @@ export default function AssessmentPanel({
         </div>
         <button
           onClick={onRunAssessment}
-          disabled={!claim || photos.length < 2 || isRunning}
+          disabled={
+            !claim ||
+            photos.length < PHOTO.MIN_PHOTOS_REQUIRED ||
+            isRunning
+          }
           className="px-3 py-1.5 rounded-md text-[10px] bg-sky-600 disabled:bg-slate-700 disabled:text-slate-400 text-white font-medium"
         >
           {isRunning ? "Running..." : "Run assessment"}
@@ -279,8 +283,8 @@ export default function AssessmentPanel({
                 if (!originalMid || delta === 0) return null;
                 const deltaPct = Math.abs(delta) / originalMid;
                 const isSignificant =
-                  Math.abs(delta) > SIGNIFICANT_OVERRIDE_DELTA_ABS ||
-                  deltaPct > SIGNIFICANT_OVERRIDE_DELTA_PCT;
+                  Math.abs(delta) > OVERRIDE.SIGNIFICANT_DELTA_ABS ||
+                  deltaPct > OVERRIDE.SIGNIFICANT_DELTA_PCT;
 
                 return (
                   <div

@@ -14,6 +14,7 @@ import {
   VehiclePart,
   RecommendationCode,
 } from "@/types/assessment";
+import { STORE } from "@/config/policy";
 
 // ============================================================================
 // TYPES
@@ -194,25 +195,31 @@ export const useClaimStore = create<ClaimStore>()(
 
           try {
             // Mock local assessment; real implementation would call your API.
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            await new Promise((resolve) =>
+              setTimeout(resolve, STORE.MOCK_ASSESSMENT_DELAY_MS)
+            );
+
+            const mockConfidence = STORE.MOCK_ASSESSMENT.CONFIDENCE;
+            const mockCostMin = STORE.MOCK_ASSESSMENT.PART_COST_MIN;
+            const mockCostMax = STORE.MOCK_ASSESSMENT.PART_COST_MAX;
 
             const mockParts: DamagedPart[] = [
               {
                 part_id: VehiclePart.REAR_BUMPER,
                 part_label: "Rear Bumper",
                 severity: PartSeverity.MODERATE,
-                confidence: 0.85,
-                estimated_cost_min: 50_000,
-                estimated_cost_max: 75_000,
+                confidence: mockConfidence,
+                estimated_cost_min: mockCostMin,
+                estimated_cost_max: mockCostMax,
                 repair_action: "replace",
               },
             ];
 
             const mockAssessment: Assessment = {
               damaged_parts: mockParts,
-              total_min: 50_000,
-              total_max: 75_000,
-              overall_confidence: 0.85,
+              total_min: mockCostMin,
+              total_max: mockCostMax,
+              overall_confidence: mockConfidence,
               recommendation: {
                 code: RecommendationCode.MANUAL_REVIEW,
                 text: "Review needed",
@@ -227,8 +234,8 @@ export const useClaimStore = create<ClaimStore>()(
                 },
               ],
               _meta: {
-                model_version: "store-mock-v1",
-                processing_time_ms: 1000,
+                model_version: STORE.MOCK_ASSESSMENT.MODEL_VERSION,
+                processing_time_ms: STORE.MOCK_ASSESSMENT_DELAY_MS,
                 timestamp: new Date().toISOString(),
               },
             };
@@ -378,7 +385,9 @@ export const useClaimStore = create<ClaimStore>()(
           if (!isDirty) return;
           set({ isSaving: true });
           try {
-            await new Promise((resolve) => setTimeout(resolve, 500));
+            await new Promise((resolve) =>
+              setTimeout(resolve, STORE.SAVE_DELAY_MS)
+            );
             set({
               isSaving: false,
               isDirty: false,
@@ -417,7 +426,7 @@ export const useClaimStore = create<ClaimStore>()(
         },
       }),
       {
-        name: "claim-store",
+        name: STORE.CLAIM_STORE_KEY,
         storage: createJSONStorage(() => localStorage),
         partialize: (state) => ({
           claim: state.claim,

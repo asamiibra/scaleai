@@ -10,9 +10,8 @@ import {
   RiskFlag,
   Claim,
   formatCostRange,
-  FAST_TRACK_CONFIDENCE_THRESHOLD,
-  FAST_TRACK_MAX_COST,
 } from "@/types/assessment";
+import { FAST_TRACK } from "@/config/policy";
 
 // ============================================================================
 // CONFIGURATION
@@ -30,8 +29,8 @@ const CONFIG = {
   MAX_FILE_SIZE_MB: 10,
 
   // Thresholds (costs in cents)
-  FAST_TRACK_MAX_COST: FAST_TRACK_MAX_COST,
-  FAST_TRACK_MIN_CONFIDENCE: FAST_TRACK_CONFIDENCE_THRESHOLD,
+  FAST_TRACK_MAX_COST: FAST_TRACK.MAX_COST,
+  FAST_TRACK_MIN_CONFIDENCE: FAST_TRACK.MIN_CONFIDENCE,
   HIGH_EXPOSURE_THRESHOLD: 300_000, // $3,000
   STRUCTURAL_THRESHOLD: 500_000, // $5,000
   TOTAL_LOSS_THRESHOLD: 2_000_000, // $20,000

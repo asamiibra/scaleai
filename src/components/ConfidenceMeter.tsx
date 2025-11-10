@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   CheckCircle,
 } from "lucide-react";
+import { UI } from "@/config/policy";
 
 // ============================================================================
 // TYPES
@@ -35,10 +36,11 @@ interface CompactConfidenceMeterProps {
 // CONFIGURATION
 // ============================================================================
 
+// Use confidence badge thresholds from config
 const THRESHOLDS = {
-  EXCELLENT: 0.85,
-  GOOD: 0.7,
-  FAIR: 0.5,
+  EXCELLENT: UI.CONFIDENCE_BADGE.EXCELLENT,
+  GOOD: UI.CONFIDENCE_BADGE.GOOD,
+  FAIR: UI.CONFIDENCE_BADGE.FAIR,
   POOR: 0,
 } as const;
 

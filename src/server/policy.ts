@@ -17,21 +17,13 @@ import {
     RiskFlag,
     Claim,
   } from "@/types/assessment";
+import { FAST_TRACK, ESCALATION, MODEL, FEATURES, FRAUD } from "@/config/policy";
   
   // ============================================================================
   // CONFIG
   // ============================================================================
   
-  const FAST_TRACK = { CONFIDENCE_THRESHOLD: 0.8, MAX_COST: 300_000 }; // cents
-  const ESCALATION = {
-    MIN_CONFIDENCE: 0.6,
-    HIGH_EXPOSURE_THRESHOLD: 500_000, // cents
-  };
-  const MODEL = { VERSION: "v2.3.1" };
-  const FEATURES = {
-    ENABLE_FRAUD_DETECTION: true,
-    ENABLE_PERSISTENT_STORAGE: true,
-  };
+  // Note: All configuration constants are imported from @/config/policy.ts
   
   // ============================================================================
   // TYPES
@@ -199,7 +191,7 @@ import {
     // Historical anomaly → inconsistent
     if (
       context.historicalData &&
-      context.historicalData.standardDeviation > 0.3
+      context.historicalData.standardDeviation > FRAUD.INCONSISTENT_DAMAGE_SD_THRESHOLD
     ) {
       flags.push(RiskFlag.INCONSISTENT_DAMAGE);
     }
@@ -223,7 +215,7 @@ import {
   
     // Fast-track window
     if (
-      confidence >= FAST_TRACK.CONFIDENCE_THRESHOLD &&
+      confidence >= FAST_TRACK.MIN_CONFIDENCE &&
       total_max <= FAST_TRACK.MAX_COST &&
       !flags.includes(RiskFlag.HIGH_EXPOSURE) &&
       !flags.includes(RiskFlag.LOW_CONFIDENCE)
@@ -263,14 +255,14 @@ import {
       parts.some(
         (p) =>
           p.severity === PartSeverity.MINOR &&
-          p.estimated_cost_max > 100_000
+          p.estimated_cost_max > FRAUD.MINOR_SEVERITY_COST_THRESHOLD
       )
     ) {
       score += 0.3;
     }
   
     // Many fragmented damages
-    if (parts.length > 5) score += 0.2;
+    if (parts.length > FRAUD.MAX_PARTS_THRESHOLD) score += 0.2;
   
     // Historical mismatch
     if (context.historicalData) {
@@ -280,7 +272,7 @@ import {
       );
       if (
         Math.abs(context.historicalData.averageFinalCost - estTotal) >
-        context.historicalData.standardDeviation * 2
+        context.historicalData.standardDeviation * FRAUD.HISTORICAL_ANOMALY_MULTIPLIER
       ) {
         score += 0.4;
       }
@@ -292,7 +284,7 @@ import {
   function generateImageQualityCheck(parts: DamagedPart[]): string[] {
     const notes: string[] = [];
   
-    if (parts.some((p) => p.confidence < 0.6)) {
+    if (parts.some((p) => p.confidence < ESCALATION.MIN_CONFIDENCE)) {
       notes.push(
         "One or more parts have low model confidence; request clearer photos or additional angles."
       );
@@ -330,13 +322,13 @@ import {
   ): string[] {
     const notes: string[] = [];
   
-    if (confidence < 0.5) {
+    if (confidence < ESCALATION.VERY_LOW_CONFIDENCE) {
       notes.push(
         "Low model confidence: full manual verification required before payout."
       );
     }
   
-    if (total_max > 1_000_000) {
+    if (total_max > ESCALATION.INSPECTION_THRESHOLD) {
       notes.push(
         "High value claim: ensure enhanced approval workflow and compliance review."
       );
@@ -348,7 +340,7 @@ import {
       );
     }
   
-    if (fraud_risk_score !== undefined && fraud_risk_score > 0.5) {
+    if (fraud_risk_score !== undefined && fraud_risk_score > FRAUD.COMPLIANCE_NOTES_THRESHOLD) {
       notes.push(
         `Elevated fraud risk score (${fraud_risk_score.toFixed(
           2
@@ -457,7 +449,7 @@ import {
       assessment.overall_confidence < ESCALATION.MIN_CONFIDENCE ||
       assessment.flags.includes(RiskFlag.STRUCTURAL_DAMAGE) ||
       (assessment.fraud_risk_score !== undefined &&
-        assessment.fraud_risk_score > 0.7)
+        assessment.fraud_risk_score > FRAUD.SENIOR_APPROVAL_THRESHOLD)
     );
   }
   
@@ -477,7 +469,7 @@ import {
     // High fraud risk
     if (
       assessment.fraud_risk_score !== undefined &&
-      assessment.fraud_risk_score > 0.7
+      assessment.fraud_risk_score > FRAUD.AUTO_ESCALATION_THRESHOLD
     ) {
       return true;
     }

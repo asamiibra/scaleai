@@ -1,0 +1,24 @@
+
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# Committer: Ahmed Sami <ahmedsami@Ahmeds-MacBook-Air.local>
+#
+# On branch main
+# Your branch is up to date with 'origin/main'.
+#
+# Changes to be committed:
+#	modified:   src/app/api/damage_assessment/route.ts
+#	modified:   src/components/AssessmentPanel.tsx
+#	modified:   src/components/ConfidenceMeter.tsx
+#	modified:   src/components/DamagedPartsTable.tsx
+#	modified:   src/components/DecisionBar.tsx
+#	modified:   src/components/ImageUploader.tsx
+#	modified:   src/components/PhotoQuality.tsx
+#	modified:   src/config/policy.ts
+#	modified:   src/server/costing.ts
+#	modified:   src/server/policy.ts
+#	modified:   src/server/vision.ts
+#	modified:   src/store/useClaimStore.ts
+#	modified:   src/types/assessment.ts
+#

@@ -5,6 +5,7 @@ import {
     PartSeverity,
     VehiclePart,
   } from "@/types/assessment";
+import { COST } from "@/config/policy";
   
   // ============================================================================
   // TYPES
@@ -35,47 +36,35 @@ import {
    * Base parts cost table.
    * Only reference keys that exist on VehiclePart.
    * Anything missing will fall back to a default.
+   * Values are imported from @/config/policy.ts
    */
   const BASE_PART_COST: Partial<Record<VehiclePart, number>> = {
-    [VehiclePart.REAR_BUMPER]: 50_000, // $500
-    [VehiclePart.TRUNK_LID]: 60_000, // $600
-    [VehiclePart.REAR_LEFT_TAILLIGHT]: 20_000, // $200
-    [VehiclePart.REAR_RIGHT_TAILLIGHT]: 20_000, // $200
-    [VehiclePart.FRAME]: 300_000, // $3,000
+    [VehiclePart.REAR_BUMPER]: COST.BASE_PART_COSTS.REAR_BUMPER,
+    [VehiclePart.TRUNK_LID]: COST.BASE_PART_COSTS.TRUNK_LID,
+    [VehiclePart.REAR_LEFT_TAILLIGHT]: COST.BASE_PART_COSTS.REAR_LEFT_TAILLIGHT,
+    [VehiclePart.REAR_RIGHT_TAILLIGHT]: COST.BASE_PART_COSTS.REAR_RIGHT_TAILLIGHT,
+    [VehiclePart.FRAME]: COST.BASE_PART_COSTS.FRAME,
   };
   
   /**
    * Severity multipliers keyed by normalized string values.
    * We use string keys so we can support both the enum values and raw strings.
+   * Values are imported from @/config/policy.ts
    */
   const SEVERITY_MULTIPLIER_BY_KEY: Record<string, number> = {
-    [PartSeverity.MINOR]: 0.6,
-    [PartSeverity.MODERATE]: 1.0,
-    [PartSeverity.SEVERE]: 1.5,
-    [PartSeverity.REPLACE]: 1.8,
-    [PartSeverity.STRUCTURAL]: 2.5,
+    [PartSeverity.MINOR]: COST.SEVERITY_MULTIPLIERS.MINOR,
+    [PartSeverity.MODERATE]: COST.SEVERITY_MULTIPLIERS.MODERATE,
+    [PartSeverity.SEVERE]: COST.SEVERITY_MULTIPLIERS.SEVERE,
+    [PartSeverity.REPLACE]: COST.SEVERITY_MULTIPLIERS.REPLACE,
+    [PartSeverity.STRUCTURAL]: COST.SEVERITY_MULTIPLIERS.STRUCTURAL,
   };
   
   /**
    * Multipliers per damage type label (lowercased).
-   * Unknown types fall back to 0.5.
+   * Unknown types fall back to COST.DEFAULT_DAMAGE_TYPE_MULTIPLIER.
+   * Values are imported from @/config/policy.ts
    */
-  const DAMAGE_TYPE_MULTIPLIER: Record<string, number> = {
-    scratch: 0.3,
-    scuff: 0.25,
-    dent: 0.6,
-    crack: 0.7,
-    crush: 1.1,
-    tear: 0.8,
-    shatter: 0.9,
-    misalignment: 0.6,
-    structural_compromise: 1.5,
-  };
-  
-  /**
-   * Labor is modeled as a fraction of total parts cost.
-   */
-  const LABOR_FRACTION = 0.3;
+  const DAMAGE_TYPE_MULTIPLIER: Record<string, number> = COST.DAMAGE_TYPE_MULTIPLIERS;
   
   // ============================================================================
   // HELPERS
@@ -85,7 +74,7 @@ import {
     const key = part.part_id as VehiclePart;
     const specific = BASE_PART_COST[key];
     // Default base if no specific mapping:
-    return specific ?? 40_000; // $400
+    return specific ?? COST.DEFAULT_BASE_PART_COST;
   }
   
   /**
@@ -110,17 +99,23 @@ import {
       const d = raw as DamageTypeLike;
   
       const key = (d.type ?? "").toLowerCase();
-      const base = DAMAGE_TYPE_MULTIPLIER[key] ?? 0.5;
+      const base = DAMAGE_TYPE_MULTIPLIER[key] ?? COST.DEFAULT_DAMAGE_TYPE_MULTIPLIER;
   
       const area =
         typeof d.area_percentage === "number"
           ? d.area_percentage
           : undefined;
   
-      // Normalize area: 50% ≈ 1.0; clamp between 0.3x and 1.5x
+      // Normalize area using config values; clamp between min and max
       const areaFactor =
         typeof area === "number"
-          ? Math.max(0.3, Math.min(1.5, area / 50))
+          ? Math.max(
+              COST.AREA_FACTOR.MIN,
+              Math.min(
+                COST.AREA_FACTOR.MAX,
+                area / COST.AREA_FACTOR.NORMALIZATION_PERCENT
+              )
+            )
           : 1.0;
   
       total += base * areaFactor;
@@ -128,8 +123,11 @@ import {
   
     const avg = total / damageTypes.length || 1.0;
   
-    // Keep within sane bounds
-    return Math.max(0.4, Math.min(2.0, avg));
+    // Keep within sane bounds from config
+    return Math.max(
+      COST.DAMAGE_TYPE_MULTIPLIER.MIN,
+      Math.min(COST.DAMAGE_TYPE_MULTIPLIER.MAX, avg)
+    );
   }
   
   // ============================================================================
@@ -165,9 +163,12 @@ import {
   
     const mid = base * severityMul * damageMul;
   
-    // Add a band around the midpoint; floor at $100
-    const min = Math.max(10_000, Math.round(mid * 0.8));
-    const max = Math.round(mid * 1.2);
+    // Add a band around the midpoint using config multipliers; floor at minimum part cost
+    const min = Math.max(
+      COST.MIN_PART_COST,
+      Math.round(mid * COST.RANGE.MIN_MULTIPLIER)
+    );
+    const max = Math.round(mid * COST.RANGE.MAX_MULTIPLIER);
   
     return { min, max };
   }
@@ -195,8 +196,8 @@ import {
       partsMax += max;
     }
   
-    const labor_min = Math.round(partsMin * LABOR_FRACTION);
-    const labor_max = Math.round(partsMax * LABOR_FRACTION);
+    const labor_min = Math.round(partsMin * COST.LABOR_FRACTION);
+    const labor_max = Math.round(partsMax * COST.LABOR_FRACTION);
   
     return {
       total_min: partsMin + labor_min,

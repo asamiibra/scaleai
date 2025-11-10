@@ -5,6 +5,7 @@ import React, { useMemo } from "react";
 import Image from "next/image";
 import { AlertTriangle, CheckCircle2, Camera } from "lucide-react";
 import type { PhotoMeta } from "@/types/assessment";
+import { IMAGE_QUALITY, PHOTO } from "@/config/policy";
 
 // ============================================================================
 // TYPES
@@ -38,11 +39,21 @@ function computeQualityScore(photo: ExtendedPhotoMeta): number {
   const width = (photo as { width?: number }).width ?? 0;
   const height = (photo as { height?: number }).height ?? 0;
 
-  // Very rough heuristic; safe defaults to avoid NaN
-  if (width === 0 || height === 0) return 0.5;
-  if (width >= 1920 && height >= 1080) return 0.9;
-  if (width >= 1280 && height >= 720) return 0.75;
-  return 0.6;
+  // Use config thresholds for quality scoring
+  if (width === 0 || height === 0) return IMAGE_QUALITY.DEFAULT_SCORE;
+  if (
+    width >= IMAGE_QUALITY.IDEAL_RESOLUTION.width &&
+    height >= IMAGE_QUALITY.IDEAL_RESOLUTION.height
+  ) {
+    return IMAGE_QUALITY.HIGH_SCORE;
+  }
+  if (
+    width >= IMAGE_QUALITY.MIN_RESOLUTION.width &&
+    height >= IMAGE_QUALITY.MIN_RESOLUTION.height
+  ) {
+    return IMAGE_QUALITY.GOOD_SCORE;
+  }
+  return IMAGE_QUALITY.FAIR_SCORE;
 }
 
 function summarizeIssues(photos: ExtendedPhotoMeta[]): string[] {
@@ -53,13 +64,13 @@ function summarizeIssues(photos: ExtendedPhotoMeta[]): string[] {
     return notes;
   }
 
-  if (photos.length < 3) {
+  if (photos.length < PHOTO.MIN_PHOTOS_RECOMMENDED) {
     notes.push("Limited photo set; add more angles for better assessment.");
   }
 
   const hasLowRes = photos.some((p) => {
     const width = (p as { width?: number }).width ?? 0;
-    return width > 0 && width < 1280;
+    return width > 0 && width < IMAGE_QUALITY.MIN_RESOLUTION.width;
   });
   if (hasLowRes) {
     notes.push(
@@ -155,7 +166,7 @@ export default function PhotoQuality({ photos }: PhotoQualityProps) {
       {/* Thumbnails */}
       {photos.length > 0 && (
         <div className="mt-2 grid grid-cols-4 gap-2">
-          {photos.slice(0, 8).map((photo) => {
+          {photos.slice(0, IMAGE_QUALITY.MAX_THUMBNAIL_PREVIEWS).map((photo) => {
             const src = photo.url || photo.previewUrl;
             const q = computeQualityScore(photo);
 
@@ -180,9 +191,9 @@ export default function PhotoQuality({ photos }: PhotoQualityProps) {
                 <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-slate-900/80">
                   <div
                     className={`h-full ${
-                      q >= 0.8
+                      q >= IMAGE_QUALITY.INDICATOR_THRESHOLDS.HIGH
                         ? "bg-emerald-500"
-                        : q >= 0.6
+                        : q >= IMAGE_QUALITY.INDICATOR_THRESHOLDS.MEDIUM
                         ? "bg-amber-400"
                         : "bg-rose-500"
                     }`}
@@ -196,7 +207,8 @@ export default function PhotoQuality({ photos }: PhotoQualityProps) {
       )}
 
       {/* OK badge when strong set */}
-      {photos.length >= 4 && avgQuality >= 0.75 && (
+      {photos.length >= IMAGE_QUALITY.MIN_PHOTOS_FOR_BADGE &&
+        avgQuality >= IMAGE_QUALITY.MIN_QUALITY_FOR_BADGE && (
         <div className="mt-1 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
           <span className="text-[9px] text-emerald-300">

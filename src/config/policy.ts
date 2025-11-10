@@ -32,6 +32,9 @@ export const ENV = {
     ENABLE_PERSISTENT_STORAGE: true,
     ENABLE_AUDIT_LOGGING: true,
     
+    // Fraud Detection
+    ENABLE_FRAUD_DETECTION: true,
+    
     // Monitoring
     ENABLE_ERROR_REPORTING: ENV.IS_PRODUCTION,
     ENABLE_ANALYTICS: ENV.IS_PRODUCTION,
@@ -72,6 +75,36 @@ export const ENV = {
     
     /** Maximum cost before mandatory shop inspection (in cents) */
     INSPECTION_THRESHOLD: 1000000, // $10,000
+    
+    /** Very low confidence threshold requiring full manual verification (0-1) */
+    VERY_LOW_CONFIDENCE: 0.5,
+  } as const;
+  
+  /**
+   * Fraud detection thresholds
+   * Rules for identifying potentially fraudulent claims
+   */
+  export const FRAUD = {
+    /** Cost threshold for minor severity that triggers fraud suspicion (in cents) */
+    MINOR_SEVERITY_COST_THRESHOLD: 100000, // $1,000
+    
+    /** Maximum number of parts before triggering fraud suspicion */
+    MAX_PARTS_THRESHOLD: 5,
+    
+    /** Standard deviation multiplier for historical anomaly detection */
+    HISTORICAL_ANOMALY_MULTIPLIER: 2,
+    
+    /** Standard deviation threshold for inconsistent damage flag (0-1) */
+    INCONSISTENT_DAMAGE_SD_THRESHOLD: 0.3,
+    
+    /** Fraud risk score threshold for compliance notes (0-1) */
+    COMPLIANCE_NOTES_THRESHOLD: 0.5,
+    
+    /** Fraud risk score threshold for auto-escalation (0-1) */
+    AUTO_ESCALATION_THRESHOLD: 0.7,
+    
+    /** Fraud risk score threshold for senior approval requirement (0-1) */
+    SENIOR_APPROVAL_THRESHOLD: 0.7,
   } as const;
   
   /**
@@ -139,6 +172,18 @@ export const ENV = {
     /** Ideal quality score (0-1) */
     IDEAL_SCORE: 0.8,
     
+    /** High quality score threshold (0-1) */
+    HIGH_SCORE: 0.9,
+    
+    /** Good quality score threshold (0-1) */
+    GOOD_SCORE: 0.75,
+    
+    /** Default quality score when resolution is unknown (0-1) */
+    DEFAULT_SCORE: 0.5,
+    
+    /** Fair quality score threshold (0-1) */
+    FAIR_SCORE: 0.6,
+    
     /** Minimum resolution (width x height) */
     MIN_RESOLUTION: {
       width: 1280,
@@ -156,6 +201,21 @@ export const ENV = {
     
     /** Compression quality threshold */
     COMPRESSION_THRESHOLD: 0.6,
+    
+    /** Quality indicator thresholds for UI display */
+    INDICATOR_THRESHOLDS: {
+      HIGH: 0.8,
+      MEDIUM: 0.6,
+    },
+    
+    /** Minimum photos for quality badge display */
+    MIN_PHOTOS_FOR_BADGE: 4,
+    
+    /** Minimum quality for quality badge */
+    MIN_QUALITY_FOR_BADGE: 0.75,
+    
+    /** Maximum thumbnail previews to show */
+    MAX_THUMBNAIL_PREVIEWS: 8,
   } as const;
   
   /**
@@ -181,6 +241,9 @@ export const ENV = {
     /** Mock model latency in milliseconds */
     MOCK_LATENCY_MS: 2500,
     
+    /** Mock vision latency in milliseconds (faster for testing) */
+    MOCK_VISION_LATENCY_MS: 1000,
+    
     /** Real API timeout in milliseconds */
     TIMEOUT_MS: 25000, // 25 seconds (leave buffer for 30s Vercel limit)
     
@@ -198,6 +261,64 @@ export const ENV = {
     
     /** Cache TTL in seconds */
     CACHE_TTL_SECONDS: 3600, // 1 hour
+    
+    /** Vision AI specific settings */
+    VISION: {
+      /** Default quality score when not provided (0-1) */
+      DEFAULT_QUALITY_SCORE: 0.6,
+      
+      /** Base confidence calculation: base + (quality * multiplier) */
+      CONFIDENCE: {
+        BASE: 0.5,
+        QUALITY_MULTIPLIER: 0.4,
+        MAX: 0.99,
+      },
+      
+      /** Complexity thresholds based on photo count and quality */
+      COMPLEXITY: {
+        MINIMAL_PHOTO_COUNT: 2,
+        MODERATE_PHOTO_COUNT: 4,
+        MINIMAL_QUALITY_THRESHOLD: 0.5,
+        MODERATE_QUALITY_THRESHOLD: 0.7,
+      },
+      
+      /** Confidence adjustment factors for secondary parts */
+      CONFIDENCE_ADJUSTMENTS: {
+        SECONDARY_PART: -0.12,
+        TERTIARY_PART: -0.15,
+        MINOR_ADJUSTMENT: -0.08,
+      },
+      
+      /** Confidence thresholds for severity determination */
+      CONFIDENCE_THRESHOLDS: {
+        HIGH: 0.7,
+        MEDIUM_HIGH: 0.75,
+        HIGH_PLUS: 0.8, // Used for high-confidence replacements
+        MEDIUM: 0.72,
+        MEDIUM_LOW: 0.65,
+      },
+      
+      /** Scale AI polling settings */
+      SCALE: {
+        MAX_POLL_ATTEMPTS: 30,
+        POLL_DELAY_MS: 2000,
+        DEFAULT_CONFIDENCE: 0.85,
+      },
+      
+      /** OpenAI Vision settings */
+      OPENAI: {
+        MAX_PHOTOS: 4,
+        MAX_TOKENS: 1000,
+        TEMPERATURE: 0.1,
+        DEFAULT_CONFIDENCE: 0.8,
+        MODEL: "gpt-4o",
+      },
+      
+      /** Custom model settings */
+      CUSTOM: {
+        DEFAULT_CONFIDENCE: 0.8,
+      },
+    },
   } as const;
   
   // ============================================================================
@@ -279,6 +400,45 @@ export const ENV = {
     
     /** Max length for truncated text */
     TRUNCATE_LENGTH: 50,
+    
+    /** Confidence badge thresholds for UI display (0-1) */
+    CONFIDENCE_BADGE: {
+      /** Excellent confidence threshold */
+      EXCELLENT: 0.85,
+      
+      /** Good confidence threshold */
+      GOOD: 0.7,
+      
+      /** Fair confidence threshold */
+      FAIR: 0.5,
+    },
+  } as const;
+  
+  /**
+   * Store configuration
+   */
+  export const STORE = {
+    /** LocalStorage key for claim store persistence */
+    CLAIM_STORE_KEY: "claim-store",
+    
+    /** Save operation delay in milliseconds (for UX simulation) */
+    SAVE_DELAY_MS: 500,
+    
+    /** Mock assessment delay in milliseconds */
+    MOCK_ASSESSMENT_DELAY_MS: 1000,
+    
+    /** Mock assessment data */
+    MOCK_ASSESSMENT: {
+      /** Default confidence for mock assessment (0-1) */
+      CONFIDENCE: 0.85,
+      
+      /** Mock part cost range (in cents) */
+      PART_COST_MIN: 50000, // $500
+      PART_COST_MAX: 75000, // $750
+      
+      /** Mock model version identifier */
+      MODEL_VERSION: "store-mock-v1",
+    },
   } as const;
   
   /**
@@ -360,6 +520,69 @@ export const ENV = {
     
     /** Estimate padding for uncertainty */
     ESTIMATE_PADDING: 0.1, // 10%
+    
+    /** Labor cost as fraction of total parts cost */
+    LABOR_FRACTION: 0.3, // 30%
+    
+    /** Default base part cost when no specific mapping exists (in cents) */
+    DEFAULT_BASE_PART_COST: 40000, // $400
+    
+    /** Minimum part cost (in cents) */
+    MIN_PART_COST: 10000, // $100
+    
+    /** Cost range multipliers (min and max around midpoint) */
+    RANGE: {
+      MIN_MULTIPLIER: 0.8, // 80% of midpoint
+      MAX_MULTIPLIER: 1.2, // 120% of midpoint
+    },
+    
+    /** Damage type multiplier fallback for unknown types */
+    DEFAULT_DAMAGE_TYPE_MULTIPLIER: 0.5,
+    
+    /** Damage type multiplier bounds */
+    DAMAGE_TYPE_MULTIPLIER: {
+      MIN: 0.4,
+      MAX: 2.0,
+    },
+    
+    /** Area factor normalization and bounds */
+    AREA_FACTOR: {
+      NORMALIZATION_PERCENT: 50, // 50% area ≈ 1.0x multiplier
+      MIN: 0.3, // Minimum area factor
+      MAX: 1.5, // Maximum area factor
+    },
+    
+    /** Severity multipliers for cost estimation */
+    SEVERITY_MULTIPLIERS: {
+      MINOR: 0.6,
+      MODERATE: 1.0,
+      SEVERE: 1.5,
+      REPLACE: 1.8,
+      STRUCTURAL: 2.5,
+    },
+    
+    /** Damage type multipliers (lowercased keys) */
+    DAMAGE_TYPE_MULTIPLIERS: {
+      scratch: 0.3,
+      scuff: 0.25,
+      dent: 0.6,
+      crack: 0.7,
+      crush: 1.1,
+      tear: 0.8,
+      shatter: 0.9,
+      misalignment: 0.6,
+      structural_compromise: 1.5,
+    },
+    
+    /** Base part costs by vehicle part type (in cents) */
+    BASE_PART_COSTS: {
+      REAR_BUMPER: 50000, // $500
+      TRUNK_LID: 60000, // $600
+      REAR_LEFT_TAILLIGHT: 20000, // $200
+      REAR_RIGHT_TAILLIGHT: 20000, // $200
+      LEFT_QUARTER_PANEL: 40000, // $400 (default)
+      FRAME: 300000, // $3,000
+    },
   } as const;
   
   // ============================================================================
@@ -607,6 +830,7 @@ export const ENV = {
     FEATURES,
     FAST_TRACK,
     ESCALATION,
+    FRAUD,
     OVERRIDE,
     PHOTO,
     IMAGE_QUALITY,
@@ -615,6 +839,7 @@ export const ENV = {
     CLAIM,
     PRIORITY,
     UI,
+    STORE,
     SHORTCUTS,
     VALIDATION,
     COST,

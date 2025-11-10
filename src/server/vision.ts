@@ -18,24 +18,13 @@ import {
     PartSeverity,
     VehiclePart,
   } from "@/types/assessment";
+import { FEATURES, MODEL, ENDPOINTS } from "@/config/policy";
   
   // ============================================================================
-  // LOCAL CONFIG (decoupled from external config modules)
+  // CONFIG
   // ============================================================================
   
-  const FEATURES = {
-    AI_PROVIDER:
-      (process.env.AI_PROVIDER as
-        | "mock"
-        | "scale"
-        | "openai"
-        | "custom"
-        | undefined) || "mock",
-  } as const;
-  
-  const MODEL = {
-    MOCK_LATENCY_MS: 1000,
-  } as const;
+  // Note: All configuration constants are imported from @/config/policy.ts
   
   // ============================================================================
   // TYPES
@@ -77,7 +66,8 @@ import {
     photos: PhotoMeta[],
     context?: VisionContext
   ): Promise<VisionResult[]> {
-    switch (FEATURES.AI_PROVIDER) {
+    const aiProvider = FEATURES.AI_PROVIDER || "mock";
+    switch (aiProvider) {
       case "scale":
         return await runScaleVision(photos, context);
       case "openai":
@@ -100,12 +90,13 @@ import {
   ): Promise<VisionResult[]> {
     // Simulate processing time
     await new Promise((resolve) =>
-      setTimeout(resolve, MODEL.MOCK_LATENCY_MS)
+      setTimeout(resolve, MODEL.MOCK_VISION_LATENCY_MS)
     );
   
     // Helper: allow optional qualityScore on PhotoMeta without changing global type
     type PhotoMetaWithQuality = PhotoMeta & { qualityScore?: number };
   
+    const defaultQuality = MODEL.VISION.DEFAULT_QUALITY_SCORE;
     const avgQuality =
       photos.length > 0
         ? photos.reduce((sum, p) => {
@@ -113,12 +104,16 @@ import {
             const q =
               typeof pm.qualityScore === "number"
                 ? pm.qualityScore
-                : 0.6; // sensible default
+                : defaultQuality;
             return sum + q;
           }, 0) / photos.length
-        : 0.6;
+        : defaultQuality;
   
-    const baseConfidence = Math.min(0.99, 0.5 + avgQuality * 0.4);
+    const { BASE, QUALITY_MULTIPLIER, MAX } = MODEL.VISION.CONFIDENCE;
+    const baseConfidence = Math.min(
+      MAX,
+      BASE + avgQuality * QUALITY_MULTIPLIER
+    );
     const complexity = getComplexity(photos.length, avgQuality);
   
     return generateMockResults(complexity, baseConfidence, context);
@@ -129,8 +124,19 @@ import {
     photoCount: number,
     avgQuality: number
   ): "minimal" | "moderate" | "extensive" {
-    if (photoCount <= 2 || avgQuality < 0.5) return "minimal";
-    if (photoCount <= 4 || avgQuality < 0.7) return "moderate";
+    const {
+      MINIMAL_PHOTO_COUNT,
+      MODERATE_PHOTO_COUNT,
+      MINIMAL_QUALITY_THRESHOLD,
+      MODERATE_QUALITY_THRESHOLD,
+    } = MODEL.VISION.COMPLEXITY;
+    
+    if (photoCount <= MINIMAL_PHOTO_COUNT || avgQuality < MINIMAL_QUALITY_THRESHOLD) {
+      return "minimal";
+    }
+    if (photoCount <= MODERATE_PHOTO_COUNT || avgQuality < MODERATE_QUALITY_THRESHOLD) {
+      return "moderate";
+    }
     return "extensive";
   }
   
@@ -163,7 +169,7 @@ import {
           part: "Rear bumper",
           part_id: VehiclePart.REAR_BUMPER,
           severity:
-            baseConfidence > 0.7
+            baseConfidence > MODEL.VISION.CONFIDENCE_THRESHOLDS.HIGH
               ? PartSeverity.SEVERE
               : PartSeverity.MODERATE,
           confidence: baseConfidence,
@@ -187,7 +193,10 @@ import {
           part: "Trunk lid",
           part_id: VehiclePart.TRUNK_LID,
           severity: PartSeverity.MODERATE,
-          confidence: Math.max(0.65, baseConfidence - 0.12),
+          confidence: Math.max(
+            MODEL.VISION.CONFIDENCE_THRESHOLDS.MEDIUM_LOW,
+            baseConfidence + MODEL.VISION.CONFIDENCE_ADJUSTMENTS.SECONDARY_PART
+          ),
           damage_types: [
             {
               type: "dent",
@@ -203,7 +212,10 @@ import {
           part: "Right tail light",
           part_id: VehiclePart.REAR_RIGHT_TAILLIGHT,
           severity: PartSeverity.REPLACE,
-          confidence: Math.max(0.75, baseConfidence - 0.15),
+          confidence: Math.max(
+            MODEL.VISION.CONFIDENCE_THRESHOLDS.MEDIUM_HIGH,
+            baseConfidence + MODEL.VISION.CONFIDENCE_ADJUSTMENTS.TERTIARY_PART
+          ),
           damage_types: [
             {
               type: "crack",
@@ -241,7 +253,10 @@ import {
           part: "Trunk lid",
           part_id: VehiclePart.TRUNK_LID,
           severity: PartSeverity.MODERATE,
-          confidence: Math.max(0.7, baseConfidence - 0.08),
+          confidence: Math.max(
+            MODEL.VISION.CONFIDENCE_THRESHOLDS.HIGH,
+            baseConfidence + MODEL.VISION.CONFIDENCE_ADJUSTMENTS.MINOR_ADJUSTMENT
+          ),
           damage_types: [
             {
               type: "dent",
@@ -255,7 +270,10 @@ import {
           part: "Right tail light",
           part_id: VehiclePart.REAR_RIGHT_TAILLIGHT,
           severity: PartSeverity.REPLACE,
-          confidence: Math.max(0.8, baseConfidence - 0.12),
+          confidence: Math.max(
+            MODEL.VISION.CONFIDENCE_THRESHOLDS.HIGH_PLUS,
+            baseConfidence + MODEL.VISION.CONFIDENCE_ADJUSTMENTS.SECONDARY_PART
+          ),
           damage_types: [
             {
               type: "shatter",
@@ -268,7 +286,10 @@ import {
           part: "Left quarter panel",
           part_id: VehiclePart.LEFT_QUARTER_PANEL,
           severity: PartSeverity.MODERATE,
-          confidence: Math.max(0.72, baseConfidence - 0.15),
+          confidence: Math.max(
+            MODEL.VISION.CONFIDENCE_THRESHOLDS.MEDIUM,
+            baseConfidence + MODEL.VISION.CONFIDENCE_ADJUSTMENTS.TERTIARY_PART
+          ),
           damage_types: [
             {
               type: "dent",
@@ -299,7 +320,7 @@ import {
           part: "Frame",
           part_id: VehiclePart.FRAME,
           severity: PartSeverity.STRUCTURAL,
-          confidence: 0.65,
+          confidence: MODEL.VISION.CONFIDENCE_THRESHOLDS.MEDIUM_LOW,
           damage_types: [
             {
               type: "misalignment",
@@ -335,8 +356,9 @@ import {
     }
   
     try {
+      const scaleApiUrl = ENDPOINTS.SCALE_API || "https://api.scale.com/v1";
       const taskResponse = await fetch(
-        "https://api.scale.com/v1/tasks",
+        `${scaleApiUrl}/tasks`,
         {
           method: "POST",
           headers: {
@@ -393,11 +415,14 @@ import {
   async function pollScaleTask(
     taskId: string,
     apiKey: string,
-    maxAttempts = 30
+    maxAttempts = MODEL.VISION.SCALE.MAX_POLL_ATTEMPTS
   ): Promise<any> {
+    const scaleApiUrl = ENDPOINTS.SCALE_API || "https://api.scale.com/v1";
+    const pollDelay = MODEL.VISION.SCALE.POLL_DELAY_MS;
+    
     for (let i = 0; i < maxAttempts; i++) {
       const response = await fetch(
-        `https://api.scale.com/v1/tasks/${taskId}`,
+        `${scaleApiUrl}/tasks/${taskId}`,
         {
           headers: {
             Authorization: `Basic ${Buffer.from(
@@ -422,7 +447,7 @@ import {
       }
   
       await new Promise((resolve) =>
-        setTimeout(resolve, 2000)
+        setTimeout(resolve, pollDelay)
       );
     }
   
@@ -446,7 +471,7 @@ import {
                 ?.severity as PartSeverity) ??
               PartSeverity.MODERATE,
             confidence:
-              annotation.confidence ?? 0.85,
+              annotation.confidence ?? MODEL.VISION.SCALE.DEFAULT_CONFIDENCE,
             bbox: annotation.bbox
               ? ([
                   annotation.bbox.x,
@@ -481,13 +506,15 @@ import {
     }
   
     try {
-      const imageContent = photos.slice(0, 4).map((photo) => ({
+      const openaiConfig = MODEL.VISION.OPENAI;
+      const openaiApiUrl = ENDPOINTS.OPENAI_API || "https://api.openai.com/v1";
+      const imageContent = photos.slice(0, openaiConfig.MAX_PHOTOS).map((photo) => ({
         type: "image_url",
         image_url: { url: photo.url },
       }));
   
       const response = await fetch(
-        "https://api.openai.com/v1/chat/completions",
+        `${openaiApiUrl}/chat/completions`,
         {
           method: "POST",
           headers: {
@@ -495,7 +522,7 @@ import {
             Authorization: `Bearer ${OPENAI_API_KEY}`,
           },
           body: JSON.stringify({
-            model: "gpt-4o",
+            model: openaiConfig.MODEL,
             messages: [
               {
                 role: "user",
@@ -514,8 +541,8 @@ import {
                 ],
               },
             ],
-            max_tokens: 1000,
-            temperature: 0.1,
+            max_tokens: openaiConfig.MAX_TOKENS,
+            temperature: openaiConfig.TEMPERATURE,
           }),
         }
       );
@@ -557,7 +584,7 @@ import {
         confidence:
           typeof item.confidence === "number"
             ? item.confidence
-            : 0.8,
+            : MODEL.VISION.OPENAI.DEFAULT_CONFIDENCE,
         notes: item.notes,
       };
     });
@@ -571,13 +598,11 @@ import {
     photos: PhotoMeta[],
     context?: VisionContext
   ): Promise<VisionResult[]> {
-    const MODEL_URL =
-      process.env.MODEL_SERVICE_URL ||
-      "http://localhost:8000";
+    const modelUrl = ENDPOINTS.CUSTOM_MODEL;
   
     try {
       const response = await fetch(
-        `${MODEL_URL}/detect`,
+        `${modelUrl}/detect`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -624,7 +649,7 @@ import {
           confidence:
             typeof d.confidence === "number"
               ? d.confidence
-              : 0.8,
+              : MODEL.VISION.CUSTOM.DEFAULT_CONFIDENCE,
           damage_types: d.damage_types || [],
           bbox: d.bbox,
         };
