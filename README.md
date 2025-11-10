@@ -748,17 +748,6 @@ We welcome contributions! Please follow these guidelines:
 - Use case and user value
 - Proposed implementation (optional)
 - Priority and impact assessment
-
----
-
-
-### Related Documentation
-
-- [Product Requirements Document](docs/prd/Claims_Intelligence_Workbench_PRD_v02.pdf)
-- [API Documentation](docs/api/README.md)
-- [Deployment Guide](docs/deployment/README.md)
-- [User Manual](docs/user-guide/README.md)
-
 ---
 
 <div align="center">
