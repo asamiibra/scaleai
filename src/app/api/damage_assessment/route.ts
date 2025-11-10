@@ -48,16 +48,10 @@ const CONFIG = {
 // TYPES
 // ============================================================================
 
-// API-facing Claim may include extra fields / aliases; normalize into shared Claim
+// API-facing Claim may include aliases; normalize into our shared Claim shape
 type ApiClaim = Claim & {
-  // canonical snake_case we rely on downstream
-  policy_number?: string;
-  incident_description?: string;
-
-  // common aliases accepted on input
-  policyNumber?: string;
-  description?: string;
-
+  policyNumber?: string; // alias for policy_number
+  description?: string; // alias for incident_description
   vehicleInfo?: unknown;
 };
 
@@ -92,7 +86,7 @@ interface AssessmentResponse {
   error?: {
     code: string;
     message: string;
-    details?: any;
+    details?: unknown;
   };
   metadata: {
     request_id: string;
@@ -131,7 +125,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const { claim: rawClaim, photos, options } = body as AssessmentRequest;
 
-    // Normalize claim to shared shape (keep both snake_case + aliases)
+    // Normalize claim: ensure canonical fields exist
     const claim: ApiClaim = {
       ...rawClaim,
       policy_number:
@@ -144,7 +138,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const authError = await checkAuthentication(req);
     if (authError) {
       return NextResponse.json(
-        buildErrorResponse(authError, requestId, startTime, "AUTH_ERROR"),
+        buildErrorResponse(
+          authError,
+          requestId,
+          startTime,
+          "AUTH_ERROR"
+        ),
         { status: 401, headers }
       );
     }
@@ -172,20 +171,36 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         requestId,
         claimId: claim.id,
       });
-      const manualAssessment = createManualReviewAssessment(claim, photos);
+      const manualAssessment = createManualReviewAssessment(
+        claim,
+        photos
+      );
       return NextResponse.json(
-        buildSuccessResponse(manualAssessment, requestId, startTime, false),
+        buildSuccessResponse(
+          manualAssessment,
+          requestId,
+          startTime,
+          false
+        ),
         { headers }
       );
     }
 
     // 5. Cache
     if (CONFIG.ENABLE_CACHING && !options?.skip_cache) {
-      const cached = await getCachedAssessment(claim.id, photos);
+      const cached = await getCachedAssessment(
+        claim.id,
+        photos
+      );
       if (cached) {
         log("info", "Cache hit", { requestId, claimId: claim.id });
         return NextResponse.json(
-          buildSuccessResponse(cached, requestId, startTime, true),
+          buildSuccessResponse(
+            cached,
+            requestId,
+            startTime,
+            true
+          ),
           { headers }
         );
       }
@@ -227,13 +242,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ])) as Assessment;
 
     // 8. Enrich
-    const enrichedAssessment = await enrichAssessment(assessment, claim);
+    const enrichedAssessment = await enrichAssessment(
+      assessment,
+      claim
+    );
 
     // 9. Persist & cache
     await Promise.all([
-      saveAssessmentToDatabase(enrichedAssessment, claim, requestId),
+      saveAssessmentToDatabase(
+        enrichedAssessment,
+        claim,
+        requestId
+      ),
       CONFIG.ENABLE_CACHING
-        ? cacheAssessment(claim.id, photos, enrichedAssessment)
+        ? cacheAssessment(
+            claim.id,
+            photos,
+            enrichedAssessment
+          )
         : Promise.resolve(),
     ]);
 
@@ -246,7 +272,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         photoCount: photos.length,
         confidence: enrichedAssessment.overall_confidence,
         totalCost: enrichedAssessment.total_max,
-        recommendation: enrichedAssessment.recommendation.code,
+        recommendation:
+          enrichedAssessment.recommendation.code,
         flags: enrichedAssessment.flags,
       },
     });
@@ -258,17 +285,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     return NextResponse.json(
-      buildSuccessResponse(enrichedAssessment, requestId, startTime, false),
+      buildSuccessResponse(
+        enrichedAssessment,
+        requestId,
+        startTime,
+        false
+      ),
       { headers }
     );
   } catch (error) {
     log("error", "Assessment failed", {
       requestId,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error:
+        error instanceof Error
+          ? error.message
+          : String(error),
+      stack:
+        error instanceof Error
+          ? error.stack
+          : undefined,
     });
 
-    if (error instanceof Error && error.message === "Assessment timeout") {
+    if (
+      error instanceof Error &&
+      error.message === "Assessment timeout"
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -280,10 +321,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           metadata: {
             request_id: requestId,
             timestamp: new Date().toISOString(),
-            processing_time_ms: Date.now() - startTime,
+            processing_time_ms:
+              Date.now() - startTime,
             provider: CONFIG.AI_PROVIDER,
           },
-        } as AssessmentResponse,
+        } satisfies AssessmentResponse,
         { status: 504, headers }
       );
     }
@@ -305,11 +347,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         metadata: {
           request_id: requestId,
           timestamp: new Date().toISOString(),
-          processing_time_ms: Date.now() - startTime,
+          processing_time_ms:
+            Date.now() - startTime,
           provider: CONFIG.AI_PROVIDER,
           version: "1.0.0",
         },
-      } as AssessmentResponse,
+      } satisfies AssessmentResponse,
       { status: 500, headers }
     );
   }
@@ -319,44 +362,52 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 // VALIDATION
 // ============================================================================
 
-function validateRequest(body: any): string | null {
-  if (!body?.claim) return "Missing required field: claim";
-  if (!Array.isArray(body.photos))
+function validateRequest(body: unknown): string | null {
+  const b = body as Partial<AssessmentRequest>;
+
+  if (!b?.claim) return "Missing required field: claim";
+  if (!Array.isArray(b.photos))
     return "Photos must be provided as an array";
 
-  const c = body.claim;
+  const c = b.claim;
 
   if (!c.id) return "Claim must include id";
   if (!c.policy_number && !c.policyNumber) {
     return "Claim must include policy_number";
   }
 
-  if (body.photos.length < CONFIG.MIN_PHOTOS) {
+  if (b.photos.length < CONFIG.MIN_PHOTOS) {
     return `At least ${CONFIG.MIN_PHOTOS} photo(s) required`;
   }
-  if (body.photos.length > CONFIG.MAX_PHOTOS) {
+  if (b.photos.length > CONFIG.MAX_PHOTOS) {
     return `Maximum ${CONFIG.MAX_PHOTOS} photos allowed`;
   }
 
-  for (let i = 0; i < body.photos.length; i++) {
-    const photo = body.photos[i];
+  for (let i = 0; i < b.photos.length; i++) {
+    const photo = b.photos[i];
 
-    if (!photo.id || !photo.filename) {
+    if (!photo?.id || !photo.filename) {
       return `Photo ${i + 1} must have id and filename`;
     }
 
     if (
       photo.size_bytes &&
-      photo.size_bytes > CONFIG.MAX_FILE_SIZE_MB * 1024 * 1024
+      photo.size_bytes >
+        CONFIG.MAX_FILE_SIZE_MB *
+          1024 *
+          1024
     ) {
       return `Photo ${photo.filename} exceeds ${CONFIG.MAX_FILE_SIZE_MB}MB limit`;
     }
 
     if (
       photo.mime_type &&
-      !["image/jpeg", "image/png", "image/webp", "image/heif"].includes(
-        photo.mime_type
-      )
+      ![
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/heif",
+      ].includes(photo.mime_type)
     ) {
       return `Photo ${photo.filename} has unsupported format: ${photo.mime_type}`;
     }
@@ -382,7 +433,9 @@ async function runAssessment(input: {
       case "custom":
         return runCustomModelAssessment(input);
       default:
-        throw new Error(`Unknown AI provider: ${CONFIG.AI_PROVIDER}`);
+        throw new Error(
+          `Unknown AI provider: ${CONFIG.AI_PROVIDER}`
+        );
     }
   }
   return runMockAssessment(input);
@@ -403,7 +456,10 @@ async function runMockAssessment(input: {
   const { claim, photos } = input;
   const parts: DamagedPart[] = [];
 
-  const complexity = calculateComplexity(claim, photos);
+  const complexity = calculateComplexity(
+    claim,
+    photos
+  );
 
   if (complexity === "minor") {
     parts.push({
@@ -414,8 +470,16 @@ async function runMockAssessment(input: {
       estimated_cost_min: 35_000,
       estimated_cost_max: 55_000,
       damage_types: [
-        { type: "scratch", severity: "light", area_percentage: 15 },
-        { type: "scuff", severity: "light", area_percentage: 10 },
+        {
+          type: "scratch",
+          severity: "light",
+          area_percentage: 15,
+        },
+        {
+          type: "scuff",
+          severity: "light",
+          area_percentage: 10,
+        },
       ],
       repair_action: "repair",
     });
@@ -429,8 +493,16 @@ async function runMockAssessment(input: {
         estimated_cost_min: 80_000,
         estimated_cost_max: 120_000,
         damage_types: [
-          { type: "dent", severity: "moderate", area_percentage: 40 },
-          { type: "crack", severity: "light", area_percentage: 20 },
+          {
+            type: "dent",
+            severity: "moderate",
+            area_percentage: 40,
+          },
+          {
+            type: "crack",
+            severity: "light",
+            area_percentage: 20,
+          },
         ],
         repair_action: "replace",
       },
@@ -442,7 +514,11 @@ async function runMockAssessment(input: {
         estimated_cost_min: 60_000,
         estimated_cost_max: 90_000,
         damage_types: [
-          { type: "dent", severity: "moderate", area_percentage: 25 },
+          {
+            type: "dent",
+            severity: "moderate",
+            area_percentage: 25,
+          },
           {
             type: "paint_damage",
             severity: "light",
@@ -452,14 +528,19 @@ async function runMockAssessment(input: {
         repair_action: "repair",
       },
       {
-        part_id: VehiclePart.REAR_RIGHT_TAILLIGHT,
+        part_id:
+          VehiclePart.REAR_RIGHT_TAILLIGHT,
         part_label: "Right tail light",
         severity: PartSeverity.REPLACE,
         confidence: 0.98,
         estimated_cost_min: 25_000,
         estimated_cost_max: 35_000,
         damage_types: [
-          { type: "crack", severity: "heavy", area_percentage: 80 },
+          {
+            type: "crack",
+            severity: "heavy",
+            area_percentage: 80,
+          },
         ],
         repair_action: "replace",
       }
@@ -474,8 +555,16 @@ async function runMockAssessment(input: {
         estimated_cost_min: 120_000,
         estimated_cost_max: 150_000,
         damage_types: [
-          { type: "crush", severity: "heavy", area_percentage: 60 },
-          { type: "tear", severity: "heavy", area_percentage: 30 },
+          {
+            type: "crush",
+            severity: "heavy",
+            area_percentage: 60,
+          },
+          {
+            type: "tear",
+            severity: "heavy",
+            area_percentage: 30,
+          },
         ],
         repair_action: "replace",
       },
@@ -487,13 +576,21 @@ async function runMockAssessment(input: {
         estimated_cost_min: 100_000,
         estimated_cost_max: 140_000,
         damage_types: [
-          { type: "crush", severity: "heavy", area_percentage: 50 },
-          { type: "misalignment", severity: "heavy" },
+          {
+            type: "crush",
+            severity: "heavy",
+            area_percentage: 50,
+          },
+          {
+            type: "misalignment",
+            severity: "heavy",
+          },
         ],
         repair_action: "replace",
       },
       {
-        part_id: VehiclePart.LEFT_QUARTER_PANEL,
+        part_id:
+          VehiclePart.LEFT_QUARTER_PANEL,
         part_label: "Left quarter panel",
         severity: PartSeverity.MODERATE,
         confidence: 0.71,
@@ -514,14 +611,19 @@ async function runMockAssessment(input: {
         repair_action: "repair",
       },
       {
-        part_id: VehiclePart.REAR_LEFT_TAILLIGHT,
+        part_id:
+          VehiclePart.REAR_LEFT_TAILLIGHT,
         part_label: "Left tail light",
         severity: PartSeverity.REPLACE,
         confidence: 0.94,
         estimated_cost_min: 25_000,
         estimated_cost_max: 35_000,
         damage_types: [
-          { type: "shatter", severity: "heavy", area_percentage: 90 },
+          {
+            type: "shatter",
+            severity: "heavy",
+            area_percentage: 90,
+          },
         ],
         repair_action: "replace",
       }
@@ -568,7 +670,11 @@ async function runMockAssessment(input: {
   const overall_confidence =
     parts.length > 0
       ? Math.round(
-          (parts.reduce((s, p) => s + p.confidence, 0) / parts.length) *
+          (parts.reduce(
+            (s, p) => s + p.confidence,
+            0
+          ) /
+            parts.length) *
             100
         ) / 100
       : 0;
@@ -585,9 +691,16 @@ async function runMockAssessment(input: {
     photos
   );
   const image_quality = assessImageQuality(photos);
-  const cost_breakdown = generateCostBreakdown(parts);
-  const fraud_risk_score = calculateFraudRisk(claim, photos, parts);
+  const cost_breakdown = generateCostBreakdown(
+    parts
+  );
+  const fraud_risk_score = calculateFraudRisk(
+    claim,
+    photos,
+    parts
+  );
 
+  // simple batch_id encodes mock context
   const batch_id = `mock:${complexity}:${photos.length}`;
 
   return {
@@ -602,16 +715,19 @@ async function runMockAssessment(input: {
     fraud_risk_score,
     _meta: {
       model_version: "mock-v2.1.0",
-      processing_time_ms: CONFIG.MOCK_LATENCY_MS,
+      processing_time_ms:
+        CONFIG.MOCK_LATENCY_MS,
       timestamp: new Date().toISOString(),
       batch_id,
     },
   };
 }
 
-// Real integrations are left as stubs with consistent return types.
+// ============================================================================
+// REAL INTEGRATIONS (STUBS)
+// ============================================================================
 
-async function runScaleAIAssessment(input: {
+async function runScaleAIAssessment(_input: {
   claim: ApiClaim;
   photos: Photo[];
 }): Promise<Assessment> {
@@ -620,7 +736,7 @@ async function runScaleAIAssessment(input: {
   );
 }
 
-async function runOpenAIAssessment(input: {
+async function runOpenAIAssessment(_input: {
   claim: ApiClaim;
   photos: Photo[];
 }): Promise<Assessment> {
@@ -629,7 +745,7 @@ async function runOpenAIAssessment(input: {
   );
 }
 
-async function runCustomModelAssessment(input: {
+async function runCustomModelAssessment(_input: {
   claim: ApiClaim;
   photos: Photo[];
 }): Promise<Assessment> {
@@ -653,7 +769,10 @@ function calculateComplexity(
     "";
   const description = desc.toLowerCase();
 
-  if (description.includes("total loss") || description.includes("rollover")) {
+  if (
+    description.includes("total loss") ||
+    description.includes("rollover")
+  ) {
     return "structural";
   }
   if (
@@ -684,7 +803,10 @@ function determineRecommendation(
       p.part_id === VehiclePart.FRAME
   );
 
-  if (hasStructural || totalMax >= CONFIG.STRUCTURAL_THRESHOLD) {
+  if (
+    hasStructural ||
+    totalMax >= CONFIG.STRUCTURAL_THRESHOLD
+  ) {
     return {
       code: RecommendationCode.ESCALATE_STRUCTURAL,
       text: "Escalate for structural review.",
@@ -693,7 +815,8 @@ function determineRecommendation(
   }
 
   if (
-    confidence >= CONFIG.FAST_TRACK_MIN_CONFIDENCE &&
+    confidence >=
+      CONFIG.FAST_TRACK_MIN_CONFIDENCE &&
     totalMax <= CONFIG.FAST_TRACK_MAX_COST &&
     parts.length <= 3
   ) {
@@ -706,7 +829,8 @@ function determineRecommendation(
 
   if (
     confidence < 0.6 ||
-    totalMax >= CONFIG.HIGH_EXPOSURE_THRESHOLD
+    totalMax >=
+      CONFIG.HIGH_EXPOSURE_THRESHOLD
   ) {
     return {
       code: RecommendationCode.ESCALATE_SENIOR,
@@ -730,14 +854,20 @@ function collectRiskFlags(
 ): RiskFlag[] {
   const flags: RiskFlag[] = [];
 
-  if (confidence < 0.6) flags.push(RiskFlag.LOW_CONFIDENCE);
-  if (totalMax >= CONFIG.HIGH_EXPOSURE_THRESHOLD)
+  if (confidence < 0.6)
+    flags.push(RiskFlag.LOW_CONFIDENCE);
+  if (
+    totalMax >=
+    CONFIG.HIGH_EXPOSURE_THRESHOLD
+  ) {
     flags.push(RiskFlag.HIGH_EXPOSURE);
+  }
 
   if (
     parts.some(
       (p) =>
-        p.severity === PartSeverity.STRUCTURAL ||
+        p.severity ===
+          PartSeverity.STRUCTURAL ||
         p.part_id === VehiclePart.FRAME
     )
   ) {
@@ -745,10 +875,11 @@ function collectRiskFlags(
   }
 
   if (photos.length < 3) {
-    flags.push(RiskFlag.INSUFFICIENT_PHOTOS);
+    flags.push(RiskFlag.MISSING_ANGLES);
   }
 
-  const severityVariance = calculateSeverityVariance(parts);
+  const severityVariance =
+    calculateSeverityVariance(parts);
   if (severityVariance > 0.5) {
     flags.push(RiskFlag.INCONSISTENT_DAMAGE);
   }
@@ -756,10 +887,12 @@ function collectRiskFlags(
   return flags;
 }
 
-function calculateSeverityVariance(parts: DamagedPart[]): number {
+function calculateSeverityVariance(
+  parts: DamagedPart[]
+): number {
   if (parts.length < 2) return 0;
 
-  const scores = parts.map((p) => {
+  const scores: number[] = parts.map((p) => {
     switch (p.severity) {
       case PartSeverity.MINOR:
         return 1;
@@ -777,17 +910,25 @@ function calculateSeverityVariance(parts: DamagedPart[]): number {
   });
 
   const mean =
-    scores.reduce((a, b) => a + b, 0) / scores.length;
+    scores.reduce(
+      (a, b) => a + b,
+      0
+    ) / scores.length;
+
   const variance =
     scores.reduce(
-      (sum, s) => sum + Math.pow(s - mean, 2),
+      (sum, s) =>
+        sum +
+        Math.pow(s - mean, 2),
       0
     ) / scores.length;
 
   return Math.sqrt(variance);
 }
 
-function assessImageQuality(photos: Photo[]): string[] {
+function assessImageQuality(
+  photos: Photo[]
+): string[] {
   const notes: string[] = [];
 
   if (!photos.length) {
@@ -844,7 +985,13 @@ function calculateFraudRisk(
   let riskScore = 0.05;
 
   if (photos.length < 2) riskScore += 0.15;
-  if (parts.some((p) => p.confidence < 0.5)) riskScore += 0.1;
+  if (
+    parts.some(
+      (p) => p.confidence < 0.5
+    )
+  ) {
+    riskScore += 0.1;
+  }
 
   const desc =
     claim.incident_description ??
@@ -866,7 +1013,8 @@ async function enrichAssessment(
     _meta: {
       ...assessment._meta,
       batch_id:
-        assessment._meta?.batch_id ?? `claim:${claim.id}`,
+        assessment._meta?.batch_id ??
+        `claim:${claim.id}`,
     },
   };
 }
@@ -922,7 +1070,8 @@ function buildSuccessResponse(
     metadata: {
       request_id: requestId,
       timestamp: new Date().toISOString(),
-      processing_time_ms: Date.now() - startTime,
+      processing_time_ms:
+        Date.now() - startTime,
       provider: CONFIG.AI_PROVIDER,
       cached,
       version: "1.0.0",
@@ -945,7 +1094,8 @@ function buildErrorResponse(
     metadata: {
       request_id: requestId,
       timestamp: new Date().toISOString(),
-      processing_time_ms: Date.now() - startTime,
+      processing_time_ms:
+        Date.now() - startTime,
       provider: CONFIG.AI_PROVIDER,
       version: "1.0.0",
     },
@@ -955,8 +1105,8 @@ function buildErrorResponse(
 function log(
   level: "info" | "warn" | "error",
   message: string,
-  meta?: Record<string, any>
-) {
+  meta?: Record<string, unknown>
+): void {
   const entry = {
     level,
     message,
@@ -965,6 +1115,7 @@ function log(
   };
 
   if (process.env.NODE_ENV === "production") {
+    // eslint-disable-next-line no-console
     console.log(JSON.stringify(entry));
   } else {
     // eslint-disable-next-line no-console
@@ -973,14 +1124,18 @@ function log(
 }
 
 // ============================================================================
-// INTEGRATION STUBS
+// INTEGRATION STUB HELPERS
 // ============================================================================
 
 async function checkAuthentication(
   req: NextRequest
 ): Promise<string | null> {
-  const authHeader = req.headers.get("authorization");
-  if (process.env.REQUIRE_AUTH === "true" && !authHeader) {
+  const authHeader =
+    req.headers.get("authorization");
+  if (
+    process.env.REQUIRE_AUTH === "true" &&
+    !authHeader
+  ) {
     return "Missing authentication credentials";
   }
   return null;
@@ -991,7 +1146,7 @@ async function checkRateLimit(
   _policyNumber: string
 ): Promise<string | null> {
   if (process.env.ENABLE_RATE_LIMIT === "true") {
-    // implement your rate limiting here
+    // plug in rate limiter here
   }
   return null;
 }
@@ -1008,7 +1163,7 @@ async function cacheAssessment(
   _photos: Photo[],
   _assessment: Assessment
 ): Promise<void> {
-  // implement caching if desired
+  // implement cache if desired
 }
 
 async function saveAssessmentToDatabase(
@@ -1020,7 +1175,8 @@ async function saveAssessmentToDatabase(
     claimId: claim.id,
     requestId,
     total_max: assessment.total_max,
-    overall_confidence: assessment.overall_confidence,
+    overall_confidence:
+      assessment.overall_confidence,
   });
 }
 
@@ -1028,7 +1184,7 @@ async function logAuditEvent(event: {
   claimId: string;
   action: string;
   requestId: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }): Promise<void> {
   log("info", "Audit event logged", event);
 }
