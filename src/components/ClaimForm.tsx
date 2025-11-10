@@ -1,13 +1,16 @@
+// src/components/ClaimForm.tsx
 "use client";
 
 import { useState } from "react";
 
+type ClaimFormPayload = {
+  policyNumber: string;
+  name: string;
+  description: string;
+};
+
 type ClaimFormProps = {
-  onSubmit: (data: {
-    policyNumber: string;
-    name: string;
-    description: string;
-  }) => void;
+  onSubmit: (data: ClaimFormPayload) => void;
   policyError?: string | null;
 };
 
@@ -18,22 +21,27 @@ export default function ClaimForm({ onSubmit, policyError }: ClaimFormProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({
-      policyNumber,
-      name,
-      description,
-    });
+
+    const payload: ClaimFormPayload = {
+      policyNumber: policyNumber.trim(),
+      name: name.trim(),
+      description: description.trim(),
+    };
+
+    onSubmit(payload);
   };
 
   const handleSample = () => {
-    const sample = {
+    const sample: ClaimFormPayload = {
       policyNumber: "POL-123456",
       name: "Sami",
       description: "Low-speed rear-end, drivable, no injuries.",
     };
+
     setPolicyNumber(sample.policyNumber);
     setName(sample.name);
     setDescription(sample.description);
+
     onSubmit(sample);
   };
 
@@ -43,8 +51,10 @@ export default function ClaimForm({ onSubmit, policyError }: ClaimFormProps) {
         {/* Policy # */}
         <div>
           <label className="block text-[11px] text-slate-400 mb-1">
-            Policy #{" "}
-            <span className="text-slate-500">(must start with&nbsp;POL-)</span>
+            Policy{" "}
+            <span className="text-slate-500">
+              (must start with&nbsp;POL-)
+            </span>
           </label>
           <input
             value={policyNumber}
@@ -57,7 +67,9 @@ export default function ClaimForm({ onSubmit, policyError }: ClaimFormProps) {
             }`}
           />
           {policyError && (
-            <p className="mt-1 text-[10px] text-rose-400">{policyError}</p>
+            <p className="mt-1 text-[10px] text-rose-400">
+              {policyError}
+            </p>
           )}
         </div>
 

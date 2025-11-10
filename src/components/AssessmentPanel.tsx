@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type {
+import React, { useMemo, useState } from "react";
+import { Info } from "lucide-react";
+import {
   Assessment,
   DamagedPart,
-  CostBreakdownEntry,
-} from "@/types/assessment"; // adjust path if needed
+  formatCostRange,
+} from "@/types/assessment";
 
+// UI-local Claim shape (matches Home)
 type Claim = {
   id: string;
   policyNumber: string;
@@ -14,424 +16,409 @@ type Claim = {
   description: string;
 };
 
-type AssessmentPanelProps = {
+type PanelActionMeta = {
+  complete?: boolean;
+};
+
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+const SIGNIFICANT_OVERRIDE_DELTA_ABS = 30_000; // $300 in cents
+const SIGNIFICANT_OVERRIDE_DELTA_PCT = 0.2; // 20%
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+export interface OverrideMetadata {
+  before: { cost_min: number; cost_max: number };
+  after: { cost_min: number; cost_max: number };
+  delta: number;
+  delta_percent: number;
+  high_value_training_data: boolean;
+  notes?: string;
+}
+
+interface AssessmentPanelProps {
   claim: Claim | null;
   photos: File[];
   assessment: Assessment | null;
   isRunning?: boolean;
-  onRunAssessment?: () => void;
-  onAction?: (label: string, meta?: { complete?: boolean }) => void;
-};
+  onRunAssessment: () => void;
+  onApprove: () => void;
+  onRequestPhotos: () => void;
+  onEscalate: () => void;
+  onOverride: (
+    index: number,
+    updated: DamagedPart,
+    metadata: OverrideMetadata
+  ) => void;
+  onAddPart?: (part: DamagedPart) => void;
+  onRemovePart?: (index: number) => void;
+}
 
-type BreakdownItem = CostBreakdownEntry;
-
-const fmt = (min: number, max: number) =>
-  `$${min.toLocaleString()}–${max.toLocaleString()}`;
-
-const confBadge = (c: number) => {
-  if (c >= 0.9) return { label: `${Math.round(c * 100)}%`, class: "bg-emerald-500" };
-  if (c >= 0.7) return { label: `${Math.round(c * 100)}%`, class: "bg-amber-400" };
-  return { label: `${Math.round(c * 100)}%`, class: "bg-rose-500" };
-};
-
-const ts = () => new Date().toISOString().replace("T", " ").slice(0, 19);
+// ============================================================================
+// COMPONENT
+// ============================================================================
 
 export default function AssessmentPanel({
   claim,
   photos,
   assessment,
-  isRunning,
+  isRunning = false,
   onRunAssessment,
-  onAction,
+  onApprove,
+  onRequestPhotos,
+  onEscalate,
+  onOverride,
+  onAddPart,
+  onRemovePart,
 }: AssessmentPanelProps) {
-  const [local, setLocal] = useState<Assessment | null>(assessment);
-  const [manualMode, setManualMode] = useState(false);
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<DamagedPart | null>(null);
+  const [overrideNotes, setOverrideNotes] = useState("");
 
-  // Sync in new assessments from parent
-  useEffect(() => {
-    if (assessment) {
-      setLocal(assessment);
-    }
+  // Totals (recomputed from damaged_parts to stay in sync with overrides)
+  const totals = useMemo(() => {
+    if (!assessment) return { min: 0, max: 0 };
+    return {
+      min: assessment.damaged_parts.reduce(
+        (s, p) => s + p.estimated_cost_min,
+        0
+      ),
+      max: assessment.damaged_parts.reduce(
+        (s, p) => s + p.estimated_cost_max,
+        0
+      ),
+    };
   }, [assessment]);
 
-  const canRunAi =
-    !!claim && photos.length >= 2 && !!onRunAssessment && !isRunning && !manualMode;
+  // ---------- Editing ----------
 
-  const breakdownItems: BreakdownItem[] = useMemo(() => {
-    if (!local) return [];
-    if (local.cost_breakdown && local.cost_breakdown.length > 0) {
-      return local.cost_breakdown;
-    }
-    // Fallback breakdown derived from parts
-    return local.damaged_parts.map((p) => ({
-      label: p.part_label,
-      details: [`Estimated range: ${fmt(p.estimated_cost_min, p.estimated_cost_max)}`],
-    }));
-  }, [local]);
-
-  const recalcTotals = (parts: DamagedPart[]): { min: number; max: number } => {
-    return parts.reduce(
-      (acc, p) => {
-        acc.min += p.estimated_cost_min || 0;
-        acc.max += p.estimated_cost_max || 0;
-        return acc;
-      },
-      { min: 0, max: 0 }
-    );
-  };
-
-  const log = (msg: string, complete = false) => {
-    onAction?.(`${ts()} - ${msg}`, complete ? { complete: true } : undefined);
-  };
-
-  /* ---------- Overrides ---------- */
-
-  const handleOverridePart = (index: number) => {
-    if (!local) return;
-    const part = local.damaged_parts[index];
+  const startEdit = (index: number) => {
+    if (!assessment) return;
+    const part = assessment.damaged_parts[index];
     if (!part) return;
-
-    const askNumber = (label: string, current: number): number | null => {
-      if (typeof window === "undefined") return null;
-      const raw = window.prompt(
-        `${label} for ${part.part_label} (current ${current}). Leave blank to keep current.`,
-        current.toString()
-      );
-      if (raw === null || raw.trim() === "") return current;
-      const value = Number(raw.trim());
-      if (!Number.isFinite(value) || value < 0) {
-        window.alert("Please enter a valid non-negative number.");
-        return null;
-      }
-      return value;
-    };
-
-    const newMin = askNumber("Override MIN", part.estimated_cost_min);
-    if (newMin === null) return;
-    const newMax = askNumber("Override MAX", part.estimated_cost_max);
-    if (newMax === null) return;
-
-    const adjMin = Math.min(newMin, newMax);
-    const adjMax = Math.max(newMin, newMax);
-
-    const updatedParts = local.damaged_parts.map((p, i) =>
-      i === index
-        ? {
-            ...p,
-            estimated_cost_min: adjMin,
-            estimated_cost_max: adjMax,
-          }
-        : p
-    );
-
-    const totals = recalcTotals(updatedParts);
-
-    const updated: Assessment = {
-      ...local,
-      damaged_parts: updatedParts,
-      total_min: totals.min,
-      total_max: totals.max,
-    };
-
-    setLocal(updated);
-
-    const prevMid =
-      (part.estimated_cost_min + part.estimated_cost_max) / 2 || 0;
-    const newMid = (adjMin + adjMax) / 2 || 0;
-    const deltaAbs = Math.abs(newMid - prevMid);
-    const deltaPct = prevMid > 0 ? deltaAbs / prevMid : 0;
-    const significant = deltaAbs > 300 || deltaPct > 0.2;
-
-    log(
-      `[OVERRIDE] ${part.part_label}: ${fmt(
-        part.estimated_cost_min,
-        part.estimated_cost_max
-      )} → ${fmt(adjMin, adjMax)} (Δ$${deltaAbs.toFixed(0)}, ${(deltaPct * 100).toFixed(
-        1
-      )}%)${significant ? " [HIGH-VALUE TRAINING DATA]" : ""}.`
-    );
+    setEditForm({ ...part });
+    setEditingIndex(index);
+    setOverrideNotes("");
   };
 
-  /* ---------- Actions ---------- */
+  const validateEditForm = (): string | null => {
+    if (!editForm) return "No data to save";
 
-  const captureFeedback = (label: string): string => {
-    if (typeof window === "undefined") return "";
-    const fb = window.prompt(
-      `${label}\nOptional: add a short note for the training / QA pipeline.`,
-      ""
-    );
-    return (fb || "").trim();
-  };
-
-  const handleApprove = () => {
-    if (!local || !claim) return;
-    const fb = captureFeedback("Approve & Log");
-    const base = `APPROVED preliminary estimate for policy ${claim.policyNumber}: ${fmt(
-      local.total_min,
-      local.total_max
-    )}.`;
-    const msg = fb ? `${base} Feedback: ${fb}` : base;
-    log(msg, true);
-  };
-
-  const handleRequestMore = () => {
-    if (!claim) return;
-    const fb = captureFeedback("Request More Photos");
-    const base = `REQUESTED more photos for policy ${claim.policyNumber} (e.g. additional angles / close-ups).`;
-    const msg = fb ? `${base} Details: ${fb}` : base;
-    log(msg, true);
-  };
-
-  const handleEscalate = () => {
-    if (!local || !claim) return;
-    const fb = captureFeedback("Escalate to Senior");
-    const base = `ESCALATED to senior adjuster for policy ${claim.policyNumber} (total ${fmt(
-      local.total_min,
-      local.total_max
-    )}, confidence=${local.overall_confidence.toFixed(2)}).`;
-    const msg = fb ? `${base} Notes: ${fb}` : base;
-    log(msg, true);
-  };
-
-  /* ---------- Manual mode ---------- */
-
-  const toggleManualMode = () => {
-    const next = !manualMode;
-    setManualMode(next);
-    if (next) {
-      log(
-        "Switched to Manual Mode: AI suggestions frozen; decisions continue to be logged."
-      );
-    } else {
-      log("Back to AI Mode: AI suggestions active again.");
+    if (!editForm.part_label?.trim()) {
+      return "Part label is required";
     }
+    if (editForm.estimated_cost_min < 0) {
+      return "Minimum cost cannot be negative";
+    }
+    if (editForm.estimated_cost_max < 0) {
+      return "Maximum cost cannot be negative";
+    }
+    if (editForm.estimated_cost_min > editForm.estimated_cost_max) {
+      return "Minimum cost cannot exceed maximum cost";
+    }
+    if (editForm.confidence < 0 || editForm.confidence > 1) {
+      return "Confidence must be between 0 and 1";
+    }
+
+    return null;
   };
 
-  /* ---------- Render ---------- */
+  const saveOverride = () => {
+    if (editingIndex === null || !editForm || !assessment) return;
 
-  return (
+    const validationError = validateEditForm();
+    if (validationError) {
+      alert(validationError);
+      return;
+    }
+
+    const original = assessment.damaged_parts[editingIndex];
+    if (!original) return;
+
+    const originalMid =
+      (original.estimated_cost_min + original.estimated_cost_max) / 2;
+    const newMid =
+      (editForm.estimated_cost_min + editForm.estimated_cost_max) / 2;
+    const delta = newMid - originalMid;
+    const deltaPct =
+      originalMid > 0 ? Math.abs(delta) / originalMid : 0;
+
+    const isHighValue =
+      Math.abs(delta) > SIGNIFICANT_OVERRIDE_DELTA_ABS ||
+      deltaPct > SIGNIFICANT_OVERRIDE_DELTA_PCT;
+
+    const metadata: OverrideMetadata = {
+      before: {
+        cost_min: original.estimated_cost_min,
+        cost_max: original.estimated_cost_max,
+      },
+      after: {
+        cost_min: editForm.estimated_cost_min,
+        cost_max: editForm.estimated_cost_max,
+      },
+      delta,
+      delta_percent: deltaPct,
+      high_value_training_data: isHighValue,
+      notes: overrideNotes || undefined,
+    };
+
+    onOverride(editingIndex, editForm, metadata);
+    setEditingIndex(null);
+    setEditForm(null);
+    setOverrideNotes("");
+  };
+
+  const cancelOverride = () => {
+    setEditingIndex(null);
+    setEditForm(null);
+    setOverrideNotes("");
+  };
+
+  // ========================================================================
+  // MAIN PANEL (keep simple; wire to your layout as needed)
+  // ========================================================================
+
+  const mainContent = (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex flex-col gap-1">
-          <div className="text-xs font-semibold text-slate-100">
-            AI Damage Assessment
-          </div>
-          <div className="flex items-center gap-2 text-[9px] text-slate-500">
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 bg-sky-500 rounded-sm" />
-              Powered by Scale AI · Mock Model{" "}
-              {local?._meta?.model_version || "v2.3.1"}
-            </span>
-            <span>
-              Inference ~
-              {local?._meta?.processing_time_ms
-                ? `${local._meta.processing_time_ms}ms`
-                : "2500ms"}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {!manualMode && (
-            <button
-              onClick={onRunAssessment}
-              disabled={!canRunAi}
-              className={`px-4 py-1.5 rounded-md text-xs font-semibold ${
-                canRunAi
-                  ? "bg-sky-500 text-slate-950 hover:bg-sky-400"
-                  : "bg-slate-800 text-slate-500 cursor-not-allowed"
-              }`}
-            >
-              {isRunning ? "Analyzing…" : "Run AI Assessment"}
-            </button>
-          )}
-          {manualMode && (
-            <button
-              onClick={toggleManualMode}
-              className="px-4 py-1.5 rounded-md text-xs bg-slate-800 text-slate-100 hover:bg-slate-700"
-            >
-              ← Back to AI Mode
-            </button>
-          )}
-          {!manualMode && (
-            <button
-              onClick={toggleManualMode}
-              className="px-3 py-1.5 rounded-md text-[10px] bg-slate-800 text-amber-300 border border-amber-500/40 hover:bg-slate-700"
-            >
-              ⚠ Manual Mode
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Manual mode note */}
-      {manualMode ? (
-        <p className="text-[10px] text-amber-300">
-          Manual Mode active. AI suggestions are shown for reference only; use
-          the actions below to record manual decisions. All actions are logged.
-        </p>
-      ) : (
-        <p className="text-[10px] text-slate-500">
-          Set claim context and upload 2–4 photos, then run AI assessment.
-        </p>
-      )}
-
-      {/* Parts table */}
-      <div className="mt-1 space-y-1 text-[11px]">
-        {local?.damaged_parts?.length ? (
-          local.damaged_parts.map((part, idx) => {
-            const badge = confBadge(part.confidence);
-            return (
-              <div
-                key={idx}
-                className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-1 cursor-pointer hover:bg-slate-800/40 rounded px-1"
-                onClick={() => handleOverridePart(idx)}
-              >
-                <div className="flex items-center gap-1">
-                  <span>{part.part_label}</span>
-                  <span className="text-[8px] text-slate-500">✏ edit</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-slate-300">{part.severity}</span>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[8px] text-slate-950 font-semibold ${badge.class}`}
-                  >
-                    {badge.label}
-                  </span>
-                  <span className="text-slate-100">
-                    {fmt(part.estimated_cost_min, part.estimated_cost_max)}
-                  </span>
-                </div>
-              </div>
-            );
-          })
-        ) : (
-          <p className="text-[10px] text-slate-600 italic">
-            Run AI assessment to see suggested parts and ranges.
-          </p>
-        )}
-      </div>
-
-      {/* Totals & recommendation */}
-      {local && (
-        <div className="space-y-1 mt-1">
-          <div className="text-sm text-slate-100">
-            <span className="font-semibold">Total:</span>{" "}
-            {fmt(local.total_min, local.total_max)}
-          </div>
-          <div className="text-[11px] text-slate-100">
-            <span className="font-semibold">Recommendation:</span>{" "}
-            {local.recommendation?.text ||
-              "✓ Fast-track eligible – Approve with verification (high confidence, low complexity)."}
-          </div>
-        </div>
-      )}
-
-      {/* Image quality & risk flags */}
-      {local && (
-        <div className="mt-2 space-y-1 text-[10px]">
-          <div className="font-semibold text-slate-200">
-            Image Quality Checks:
-          </div>
-          <ul className="ml-4 list-disc text-emerald-400">
-            {(local.image_quality && local.image_quality.length
-              ? local.image_quality
-              : [
-                  "Resolution acceptable for automated review (mock).",
-                  "Key angles covered (mock).",
-                ]
-            ).map((q, i) => (
-              <li key={i}>{q}</li>
-            ))}
-          </ul>
-          <div className="text-slate-200 font-semibold">Risk Flags:</div>
-          <ul className="ml-4 list-disc">
-            {local.flags && local.flags.length ? (
-              local.flags.map((f, i) => (
-                <li key={i} className="text-amber-400">
-                  {f}
-                </li>
-              ))
-            ) : (
-              <li className="text-emerald-400">None detected in this mock.</li>
-            )}
-          </ul>
-          {manualMode && (
-            <p className="text-[9px] text-slate-500 italic">
-              AI suggestion shown for reference only in Manual Mode.
+      <div className="flex items-baseline justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-100">
+            AI Assessment
+          </h2>
+          {claim && (
+            <p className="text-[10px] text-slate-500">
+              {claim.policyNumber} • {claim.name}
             </p>
           )}
         </div>
-      )}
-
-      {/* Cost breakdown toggle */}
-      {local && breakdownItems.length > 0 && (
-        <div className="mt-1">
-          <button
-            onClick={() => setShowBreakdown((v) => !v)}
-            className="text-[10px] text-sky-400 hover:underline"
-          >
-            {showBreakdown ? "Hide cost breakdown" : "Show cost breakdown"}
-          </button>
-          {showBreakdown && (
-            <div className="mt-1 space-y-1 text-[9px] text-slate-300">
-              {breakdownItems.map((item, idx) => (
-                <div key={idx}>
-                  <div className="font-semibold">{item.label}</div>
-                  <ul className="ml-4 list-disc text-slate-400">
-                    {(item.details || []).map((d, j) => (
-                      <li key={j}>{d}</li>
-                    ))}
-                    {(!item.details || item.details.length === 0) && (
-                      <li>Estimate details not available in this mock.</li>
-                    )}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Action buttons */}
-      <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
         <button
-          onClick={handleApprove}
-          disabled={!local || !claim}
-          className={`px-3 py-2 rounded-xl font-semibold ${
-            local && claim
-              ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400"
-              : "bg-slate-800 text-slate-600 cursor-not-allowed"
-          }`}
+          onClick={onRunAssessment}
+          disabled={!claim || photos.length < 2 || isRunning}
+          className="px-3 py-1.5 rounded-md text-[10px] bg-sky-600 disabled:bg-slate-700 disabled:text-slate-400 text-white font-medium"
         >
-          ✓ Approve &amp; Log{" "}
-          {local ? `(${fmt(local.total_min, local.total_max)})` : ""}
-        </button>
-        <button
-          onClick={handleRequestMore}
-          disabled={!claim}
-          className={`px-3 py-2 rounded-xl font-semibold ${
-            claim
-              ? "bg-amber-500 text-slate-950 hover:bg-amber-400"
-              : "bg-slate-800 text-slate-600 cursor-not-allowed"
-          }`}
-        >
-          Request More Photos
-        </button>
-        <button
-          onClick={handleEscalate}
-          disabled={!claim}
-          className={`px-3 py-2 rounded-xl font-semibold ${
-            claim
-              ? "bg-rose-500 text-slate-50 hover:bg-rose-400"
-              : "bg-slate-800 text-slate-600 cursor-not-allowed"
-          }`}
-        >
-          Escalate to Senior
+          {isRunning ? "Running..." : "Run assessment"}
         </button>
       </div>
+
+      <div className="text-xs text-slate-400">
+        Total Estimate:{" "}
+        <span className="font-semibold text-slate-100">
+          {formatCostRange(totals.min, totals.max)}
+        </span>
+      </div>
+
+      {/* You can expand this to list parts, actions, etc. */}
     </div>
+  );
+
+  // ========================================================================
+  // RENDER
+  // ========================================================================
+
+  return (
+    <>
+      {mainContent}
+
+      {editingIndex !== null && editForm && assessment && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/50">
+          <div className="bg-slate-900 rounded-xl border border-slate-800 w-full max-w-md">
+            {/* Header */}
+            <div className="p-4 border-b border-slate-800">
+              <h3 className="text-lg font-semibold text-slate-100">
+                Override Estimate
+              </h3>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 space-y-4">
+              {/* Cost Comparison */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
+                  <div className="text-xs text-slate-400 mb-2">
+                    AI Estimate
+                  </div>
+                  <div className="text-sm text-slate-200">
+                    {formatCostRange(
+                      assessment.damaged_parts[editingIndex]
+                        .estimated_cost_min,
+                      assessment.damaged_parts[editingIndex]
+                        .estimated_cost_max
+                    )}
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-sky-500/10 border border-sky-500/30">
+                  <div className="text-xs text-sky-400 mb-2">
+                    Your Override
+                  </div>
+                  <div className="text-sm text-slate-100 font-semibold">
+                    {formatCostRange(
+                      editForm.estimated_cost_min,
+                      editForm.estimated_cost_max
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Delta Display */}
+              {(() => {
+                const originalPart =
+                  assessment.damaged_parts[editingIndex];
+                const originalMid =
+                  (originalPart.estimated_cost_min +
+                    originalPart.estimated_cost_max) /
+                  2;
+                const newMid =
+                  (editForm.estimated_cost_min +
+                    editForm.estimated_cost_max) /
+                  2;
+                const delta = newMid - originalMid;
+                if (!originalMid || delta === 0) return null;
+                const deltaPct = Math.abs(delta) / originalMid;
+                const isSignificant =
+                  Math.abs(delta) > SIGNIFICANT_OVERRIDE_DELTA_ABS ||
+                  deltaPct > SIGNIFICANT_OVERRIDE_DELTA_PCT;
+
+                return (
+                  <div
+                    className={`p-3 rounded-lg ${
+                      isSignificant
+                        ? "bg-amber-500/10 border border-amber-500/30"
+                        : "bg-slate-950 border border-slate-800"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <Info className="w-4 h-4 text-amber-400 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-amber-400 mb-1">
+                          Override Impact
+                        </p>
+                        <div className="text-xs text-amber-300">
+                          Delta: ${(delta / 100).toFixed(0)} (
+                          {(deltaPct * 100).toFixed(1)}%)
+                          {isSignificant &&
+                            " • Marked as high-value override for review/training."}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Form Fields */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Part Label
+                  </label>
+                  <input
+                    value={editForm.part_label}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        part_label: e.target.value,
+                      })
+                    }
+                    className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Min Cost (cents)
+                    </label>
+                    <input
+                      type="number"
+                      value={editForm.estimated_cost_min}
+                      onChange={(e) =>
+                        setEditForm({
+                          ...editForm,
+                          estimated_cost_min:
+                            parseInt(e.target.value, 10) || 0,
+                        })
+                      }
+                      className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Max Cost (cents)
+                    </label>
+                    <input
+                      type="number"
+                      value={editForm.estimated_cost_max}
+                      onChange={(e) =>
+                        setEditForm({
+                          ...editForm,
+                          estimated_cost_max:
+                            parseInt(e.target.value, 10) || 0,
+                        })
+                      }
+                      className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 outline-none focus:border-sky-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Confidence (0-1)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="1"
+                    value={editForm.confidence}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        confidence:
+                          parseFloat(e.target.value) || 0,
+                      })
+                    }
+                    className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Override Notes
+                  </label>
+                  <textarea
+                    value={overrideNotes}
+                    onChange={(e) =>
+                      setOverrideNotes(e.target.value)
+                    }
+                    className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 outline-none focus:border-sky-500"
+                    rows={3}
+                    placeholder="Explain why you're overriding the AI estimate..."
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-800 flex justify-end gap-3">
+              <button
+                onClick={cancelOverride}
+                className="px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-200 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveOverride}
+                className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-medium transition-colors"
+              >
+                Save Override
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

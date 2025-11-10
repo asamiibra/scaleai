@@ -5,7 +5,13 @@ import ClaimForm from "../components/ClaimForm";
 import ImageUploader from "../components/ImageUploader";
 import AssessmentPanel from "../components/AssessmentPanel";
 import ActionLog from "../components/ActionLog";
-import type { Assessment } from "@/types/assessment"; // adjust path if needed
+
+import type { Assessment, DamagedPart } from "@/types/assessment";
+import {
+  PartSeverity,
+  VehiclePart,
+  RecommendationCode,
+} from "@/types/assessment";
 
 /* ---------- Types ---------- */
 
@@ -25,7 +31,7 @@ type PanelActionMeta = {
 const ts = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 
 const formatRange = (min: number, max: number) =>
-  `$${min.toLocaleString()}–${max.toLocaleString()}`;
+  `$${(min / 100).toLocaleString()}–$${(max / 100).toLocaleString()}`;
 
 /* ==================================================================== */
 
@@ -94,201 +100,190 @@ export default function Home() {
     }
 
     snapshot();
-
-    const next: Claim = {
-      id: claim?.id ?? `CLAIM-${Date.now()}`,
+    const newClaim: Claim = {
+      id: Math.random().toString(36).slice(2),
+      ...partial,
       policyNumber: normalized,
-      name: partial.name.trim(),
-      description: partial.description.trim(),
     };
-
-    setClaim(next);
+    setClaim(newClaim);
     setPolicyError(null);
-    setStatus("Claim context set. Next: upload 2–4 damage photos.");
-    setAllowNewClaim(false);
-    setAssessment(null);
     setStep(2);
-
-    if (photos.length === 0) {
-      setUploadHint("Next: drag & drop or choose 2–4 clear photos to continue.");
-    } else {
-      setUploadHint(null);
-    }
-
-    log(
-      `[AGENT] Claim context set for policy ${next.policyNumber} (${next.name}).`
-    );
+    setUploadHint("Please upload damage photos to proceed.");
+    log(`Claim context set for ${newClaim.policyNumber}`);
   };
 
   /* ---------- Step 2: Photos ---------- */
 
-  const handlePhotosChange = (files: File[]) => {
+  const handlePhotosChange = (newPhotos: File[]) => {
+    if (!claim) return;
     snapshot();
-
-    const limited = files.slice(0, 4); // enforce max 4 in UI
-    setPhotos(limited);
-    setAllowNewClaim(false);
-
-    if (limited.length > 0) {
-      setUploadHint(null);
-      setStatus("Photos added. You can now run AI assessment.");
-      if (claim) setStep(3);
-      log(
-        `[AGENT] Uploaded ${limited.length} damage photos: ${limited
-          .map((f) => f.name)
-          .join(", ")}.`
-      );
+    setPhotos(newPhotos);
+    setUploadHint(null);
+    if (newPhotos.length >= 2) {
+      setStep(3);
+      log(`Uploaded ${newPhotos.length} photos`);
     } else {
-      setStatus("No photos selected yet.");
-      if (claim) {
-        setUploadHint(
-          "Please upload 2–4 clear photos (rear, side, close-ups) before running AI."
-        );
-        setStep(2);
-      }
+      setStep(2);
     }
   };
 
-  /* ---------- Step 3: Run AI (mock) ---------- */
+  /* ---------- Step 3: Assessment ---------- */
 
-  const handleRunAssessment = async () => {
-    if (!claim) {
-      setStatus("Set claim context before running assessment.");
-      return;
-    }
-    if (photos.length < 2) {
-      setUploadHint("Upload at least 2 photos before running AI assessment.");
-      setStatus("Need more photos to proceed.");
-      return;
-    }
-
+  const handleRunAssessment = () => {
+    if (!claim || photos.length < 2) return;
     snapshot();
     setIsRunning(true);
-    setAllowNewClaim(false);
-    setStatus("Running mock AI assessment…");
-    log(
-      `[SYSTEM] Calling /api/damage_assessment with ${photos.length} photos.`
-    );
+    setStatus("Running AI assessment...");
+    log("AI assessment started");
 
-    try {
-      const res = await fetch("/api/damage_assessment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          claim,
-          photos: photos.map((p) => p.name),
-        }),
-      });
+    // Mock assessment (replace with actual API call)
+    setTimeout(() => {
+      const mockAssessment: Assessment = {
+        damaged_parts: [
+          {
+            part_id: VehiclePart.REAR_BUMPER,
+            part_label: "Rear Bumper",
+            severity: PartSeverity.MODERATE,
+            confidence: 0.85,
+            estimated_cost_min: 50_000,
+            estimated_cost_max: 75_000,
+            repair_action: "replace",
+          },
+        ],
+        total_min: 50_000,
+        total_max: 75_000,
+        overall_confidence: 0.85,
+        recommendation: {
+          code: RecommendationCode.FAST_TRACK_REVIEW,
+          text: "Approve - high confidence, low exposure",
+        },
+        flags: [],
+        image_quality: ["Good lighting", "Multiple angles provided"],
+        cost_breakdown: [],
+        _meta: {
+          model_version: "mock-v1",
+          processing_time_ms: 1500,
+          timestamp: new Date().toISOString(),
+        },
+      };
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-
-      const data: Assessment = await res.json();
-      setAssessment(data);
-      setStep(4);
-      setStatus("AI assessment ready. Review, override, or escalate.");
-      log(
-        `[AI] Assessment generated (overall_confidence=${data.overall_confidence.toFixed(
-          2
-        )}, total=${formatRange(data.total_min, data.total_max)}).`
-      );
-    } catch (err: any) {
-      console.error(err);
-      setStatus("Failed to run mock AI assessment. Please try again.");
-      log(
-        `[SYSTEM] Error while running damage_assessment: ${
-          err?.message || String(err)
-        }`
-      );
-    } finally {
+      setAssessment(mockAssessment);
       setIsRunning(false);
-    }
+      setStep(4);
+      setStatus("Assessment complete");
+      log("AI assessment completed");
+    }, 2000);
   };
 
-  /* ---------- Step 4: Actions from AssessmentPanel ---------- */
-
-  const handlePanelAction = (label: string, meta?: PanelActionMeta) => {
+  const onApprove = () => {
     snapshot();
-    log(label);
+    log("Claim approved");
+    setAllowNewClaim(true);
+    setStatus("Claim approved successfully");
+  };
 
-    if (meta?.complete) {
-      setStatus("Decision recorded. You can start a new claim.");
-      setAllowNewClaim(true);
-    }
+  const onRequestPhotos = () => {
+    snapshot();
+    log("Additional photos requested");
+    setStep(2);
+    setUploadHint("Please upload additional photos for better assessment.");
+  };
+
+  const onEscalate = () => {
+    snapshot();
+    log("Claim escalated");
+    setAllowNewClaim(true);
+    setStatus("Claim escalated for manual review");
+  };
+
+  const onOverride = (index: number, updated: DamagedPart) => {
+    if (!assessment) return;
+    snapshot();
+    const newParts = [...assessment.damaged_parts];
+    newParts[index] = updated;
+    const newAssessment: Assessment = {
+      ...assessment,
+      damaged_parts: newParts,
+      total_min: newParts.reduce(
+        (sum, p) => sum + p.estimated_cost_min,
+        0
+      ),
+      total_max: newParts.reduce(
+        (sum, p) => sum + p.estimated_cost_max,
+        0
+      ),
+    };
+    setAssessment(newAssessment);
+    log(`Override applied to part ${index + 1}`);
+  };
+
+  const onAddPart = (part: DamagedPart) => {
+    if (!assessment) return;
+    snapshot();
+    const newAssessment: Assessment = {
+      ...assessment,
+      damaged_parts: [...assessment.damaged_parts, part],
+    };
+    setAssessment(newAssessment);
+    log("New part added");
+  };
+
+  const onRemovePart = (index: number) => {
+    if (!assessment) return;
+    snapshot();
+    const newParts = assessment.damaged_parts.filter((_, i) => i !== index);
+    const newAssessment: Assessment = {
+      ...assessment,
+      damaged_parts: newParts,
+    };
+    setAssessment(newAssessment);
+    log(`Part ${index + 1} removed`);
   };
 
   const handleStartNewClaim = () => {
-    snapshot();
     setClaim(null);
     setPhotos([]);
     setAssessment(null);
     setActions([]);
     setStep(1);
+    setPolicyError(null);
     setUploadHint(null);
     setStatus(null);
     setAllowNewClaim(false);
-    setPolicyError(null);
-    log("[SYSTEM] Workbench reset. Ready for a new claim.");
+    setHistory([]);
+    log("New claim started");
   };
-
-  /* ---------- UI helpers ---------- */
-
-  const stepClass = (idx: number) => {
-    if (step === idx)
-      return "px-4 py-2 rounded-full border border-emerald-400 bg-emerald-500/10 text-emerald-300 text-xs flex items-center gap-2";
-    if (step > idx)
-      return "px-4 py-2 rounded-full border border-emerald-400/60 bg-slate-900 text-emerald-400 text-xs flex items-center gap-2";
-    return "px-4 py-2 rounded-full border border-slate-700 bg-slate-900 text-slate-400 text-xs flex items-center gap-2";
-  };
-
-  /* ==================================================================== */
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-50 p-6">
-      <div className="max-w-6xl mx-auto space-y-5">
+    <main className="min-h-screen bg-slate-950 text-slate-50 p-4 lg:p-8">
+      <div className="max-w-7xl mx-auto space-y-4">
         {/* Header */}
-        <header className="space-y-2">
-          <h1 className="text-3xl font-semibold">
-            Scale AI Claims Intelligence Workbench
-          </h1>
-          <div className="flex flex-wrap gap-3">
-            <div className={stepClass(1)}>
-              ① Load sample claim or enter details
-            </div>
-            <div className={stepClass(2)}>
-              ② Upload 2–4 damage photos
-            </div>
-            <div className={stepClass(3)}>
-              ③ Run AI damage assessment
-            </div>
-            <div className={stepClass(4)}>
-              ④ Approve / Request info / Escalate
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
+        <header className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-slate-100">
+              Claims Workbench
+            </h1>
             {status && (
-              <p className="text-xs text-sky-400">{status}</p>
+              <p className="text-xs text-emerald-400 mt-1">{status}</p>
             )}
-            <div className="flex gap-2 ml-auto">
-              {history.length > 0 && (
-                <button
-                  onClick={handleUndo}
-                  className="px-3 py-1.5 text-[10px] rounded-md border border-slate-600 text-slate-300 hover:bg-slate-800"
-                >
-                  ↺ Undo last change
-                </button>
-              )}
-              {allowNewClaim && (
-                <button
-                  onClick={handleStartNewClaim}
-                  className="px-3 py-1.5 text-[10px] rounded-md bg-slate-800 text-slate-100 hover:bg-slate-700"
-                >
-                  Start new claim
-                </button>
-              )}
-            </div>
+          </div>
+          <div className="flex gap-2">
+            {history.length > 0 && (
+              <button
+                onClick={handleUndo}
+                className="px-3 py-1.5 text-[10px] rounded-md border border-slate-600 text-slate-300 hover:bg-slate-800"
+              >
+                ↺ Undo last change
+              </button>
+            )}
+            {allowNewClaim && (
+              <button
+                onClick={handleStartNewClaim}
+                className="px-3 py-1.5 text-[10px] rounded-md bg-slate-800 text-slate-100 hover:bg-slate-700"
+              >
+                Start new claim
+              </button>
+            )}
           </div>
         </header>
 
@@ -334,7 +329,12 @@ export default function Home() {
             assessment={assessment}
             isRunning={isRunning}
             onRunAssessment={handleRunAssessment}
-            onAction={handlePanelAction}
+            onApprove={onApprove}
+            onRequestPhotos={onRequestPhotos}
+            onEscalate={onEscalate}
+            onOverride={onOverride}
+            onAddPart={onAddPart}
+            onRemovePart={onRemovePart}
           />
         </section>
 

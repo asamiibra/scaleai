@@ -1,19 +1,15 @@
+// src/components/ImageUploader.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useRef, useCallback } from "react";
+import { Image } from "lucide-react";
 
-type ImageUploaderProps = {
+interface ImageUploaderProps {
   photos: File[];
   onChange: (files: File[]) => void;
   disabled?: boolean;
   hint?: string;
-};
-
-type Preview = {
-  url: string;
-  name: string;
-  quality: "good" | "low";
-};
+}
 
 export default function ImageUploader({
   photos,
@@ -21,116 +17,133 @@ export default function ImageUploader({
   disabled,
   hint,
 }: ImageUploaderProps) {
-  const [previews, setPreviews] = useState<Preview[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Build previews when photos change
-  useEffect(() => {
-    const next: Preview[] = photos.map((file) => {
-      const url = URL.createObjectURL(file);
-      const size = (file.size || 0) / 1024; // KB
-      const quality: "good" | "low" =
-        size > 500 && file.type.toLowerCase().includes("image")
-          ? "good"
-          : "low";
-      return { url, name: file.name, quality };
-    });
-    setPreviews(next);
-
-    return () => {
-      next.forEach((p) => URL.revokeObjectURL(p.url));
-    };
-  }, [photos]);
-
-  const handleFiles = (fileList: FileList | null) => {
-    if (!fileList) return;
-    const files = Array.from(fileList).slice(0, 4); // enforce max 4
-    onChange(files);
-  };
-
-  const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleFiles(e.target.files);
-    e.target.value = "";
-  };
-
-  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    if (disabled) return;
-    handleFiles(e.dataTransfer.files);
-  };
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  }, []);
 
-  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  };
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragActive(false);
+
+      if (disabled) return;
+
+      const files = Array.from(e.dataTransfer.files).filter((f) =>
+        f.type.startsWith("image/")
+      );
+
+      if (files.length > 0) {
+        onChange(files.slice(0, 4));
+      }
+    },
+    [disabled, onChange]
+  );
+
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files.length > 0) {
+        const files = Array.from(e.target.files).filter((f) =>
+          f.type.startsWith("image/")
+        );
+        onChange(files.slice(0, 4));
+      }
+    },
+    [onChange]
+  );
+
+  const handleRemove = useCallback(
+    (index: number) => {
+      const newPhotos = photos.filter((_, i) => i !== index);
+      onChange(newPhotos);
+    },
+    [photos, onChange]
+  );
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      {/* Upload Area */}
       <div
-        onDrop={onDrop}
-        onDragOver={onDragOver}
-        className={`relative border-2 border-dashed rounded-xl px-4 py-6 text-center transition-colors ${
-          disabled
-            ? "border-slate-800 bg-slate-950/40 text-slate-600"
-            : "border-sky-500/40 bg-slate-950/60 text-slate-300 hover:border-sky-400"
-        }`}
+        onDragEnter={handleDrag}
+        onDragLeave={handleDrag}
+        onDragOver={handleDrag}
+        onDrop={handleDrop}
+        onClick={() => !disabled && inputRef.current?.click()}
+        className={`relative border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
+          dragActive ? 'border-sky-500 bg-sky-500/5' : 'border-slate-700 bg-slate-950'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
-        {disabled && (
-          <div className="absolute inset-0 bg-slate-950/70 flex items-center justify-center text-[10px] text-slate-500 rounded-xl">
-            Set claim context to enable uploads.
-          </div>
-        )}
-
-        <div className="flex flex-col items-center gap-1 pointer-events-none">
-          <span className="text-2xl">📷</span>
-          <p className="text-[11px]">
-            Drag &amp; drop photos here or{" "}
-            <label className="underline text-sky-400 cursor-pointer pointer-events-auto">
-              browse files
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={onInputChange}
-                disabled={disabled}
-              />
-            </label>
-            .
-          </p>
-          <p className="text-[9px] text-slate-500">
-            Max 4 images. Rear, side &amp; close-ups work best.
-          </p>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleChange}
+          className="hidden"
+          disabled={disabled}
+        />
+        <div className="flex flex-col items-center gap-2">
+          <Image className="w-8 h-8 text-slate-400" />
+          <p className="text-sm text-slate-300">Drag photos here or click to upload</p>
+          <p className="text-[10px] text-slate-500">Max {photos.length}/4 photos • JPG, PNG, WEBP</p>
         </div>
       </div>
 
       {hint && (
-        <p className="text-[10px] text-sky-400 flex items-center gap-1">
-          <span>⬆</span> {hint}
-        </p>
+        <div className="mt-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+          <p className="text-xs text-amber-300">{hint}</p>
+        </div>
       )}
 
-      {previews.length > 0 && (
-        <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2">
-          {previews.map((p) => (
-            <div
-              key={p.url}
-              className="relative rounded-md overflow-hidden bg-slate-900 border border-slate-800"
-            >
-              <img
-                src={p.url}
-                alt={`Uploaded damage photo ${p.name}`}
-                className="w-full h-24 object-cover"
-              />
-              <div className="flex items-center justify-between px-1.5 py-0.5 text-[8px] bg-slate-950/90 text-slate-200">
-                <span className="truncate max-w-[70%]">{p.name}</span>
-                <span
-                  className={
-                    p.quality === "good"
-                      ? "text-emerald-400"
-                      : "text-amber-400"
-                  }
+      {/* Photo Previews */}
+      {photos.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {photos.map((photo, index) => (
+            <div key={index} className="relative group">
+              <div className="aspect-square rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
+                <img
+                  src={URL.createObjectURL(photo)}
+                  alt={`Upload ${index + 1}`}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+
+              {!disabled && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemove(index);
+                  }}
+                  className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-500 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-rose-600"
+                  title="Remove photo"
                 >
-                  {p.quality === "good" ? "✓ Good" : "⚠ Low"}
-                </span>
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              )}
+
+              <div className="mt-1 text-xs text-slate-400 truncate">
+                {photo.name}
               </div>
             </div>
           ))}
